@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>[hidden]{display:none!important}body{margin:0}</style>
+</head>
+<body>
+<title>지역 온기 설계 키트</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
+<style>
+/* 한 열 흐름: 약속 → 3분 체크 → 키트 미리보기 → 신청. 미리보기는 실제 서류처럼 '한 장' 카드로. */
+:root {
+  --bg: #f2f5f1; --paper: #ffffff; --ink: #1c2f2b; --muted: #5d6e69; --line: #d8e0db;
+  --brand: #1f5a4f; --brand-soft: #e1ede8; --warm: #c9821e; --warm-soft: #f8ecd8;
+  --display: "Gowun Batang", "AppleMyungjo", serif;
+  --body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121a18; --paper: #1a2522; --ink: #e5ece9; --muted: #9db0aa; --line: #2c3b37;
+  --brand: #7cc3b2; --brand-soft: #1f322d; --warm: #e6a64a; --warm-soft: #3a2d1a; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #121a18; --paper: #1a2522; --ink: #e5ece9; --muted: #9db0aa; --line: #2c3b37;
+  --brand: #7cc3b2; --brand-soft: #1f322d; --warm: #e6a64a; --warm-soft: #3a2d1a; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.65 var(--body); word-break: keep-all; overflow-wrap: anywhere; }
+.wrap { max-width: 760px; margin: 0 auto; padding-block: 40px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 28px; }
+.tag { display: inline-block; font-size: 12px; letter-spacing: .04em; color: var(--brand); background: var(--brand-soft); border-radius: 999px; padding: 3px 12px; }
+h1 { font-family: var(--display); font-size: clamp(26px, 5vw, 36px); line-height: 1.35; margin: 12px 0 10px; text-wrap: balance; font-weight: 700; }
+h1 em { font-style: normal; color: var(--brand); }
+.lead { color: var(--muted); max-width: 60ch; margin: 0; }
+.facts { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 14px; font-size: 13px; color: var(--muted); }
+.facts b { color: var(--ink); font-weight: 600; }
+section h2 { font-family: var(--display); font-size: 21px; margin: 0 0 4px; }
+section > p.sub { color: var(--muted); margin: 0 0 14px; font-size: 14px; }
+form { display: grid; gap: 16px; }
+fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; }
+legend { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+.opts { display: flex; flex-wrap: wrap; gap: 8px; }
+.opts label { position: relative; }
+.opts input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+.opts span { display: inline-block; border: 1px solid var(--line); background: var(--paper); border-radius: 10px; padding: 7px 14px; font-size: 14px; cursor: pointer; }
+.opts input:checked + span { border-color: var(--brand); background: var(--brand-soft); color: var(--brand); font-weight: 600; }
+.opts input:focus-visible + span { outline: 2px solid var(--warm); outline-offset: 2px; }
+.btn { appearance: none; border: 0; background: var(--brand); color: var(--paper); font: 600 15px var(--body); border-radius: 12px; padding: 12px 20px; cursor: pointer; justify-self: start; }
+.btn:focus-visible { outline: 3px solid var(--warm); outline-offset: 2px; }
+.btn.ghost { background: transparent; color: var(--brand); border: 1px solid var(--brand); }
+.sheet { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 22px; display: grid; gap: 18px; box-shadow: 0 1px 0 var(--line); }
+.sheet-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: baseline; border-bottom: 1px dashed var(--line); padding-bottom: 12px; }
+.sheet-head h3 { font-family: var(--display); font-size: 19px; margin: 0; }
+.stamp { font-size: 12px; color: var(--warm); border: 1px solid var(--warm); border-radius: 6px; padding: 1px 8px; }
+.part h4 { font-size: 14px; margin: 0 0 6px; color: var(--brand); }
+.part ul { margin: 0; padding-left: 18px; }
+.part p { margin: 0; }
+.note { font-size: 12.5px; color: var(--muted); }
+.timeline { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.timeline div { background: var(--bg); border-radius: 8px; padding: 8px; font-size: 12.5px; min-width: 0; }
+.timeline b { display: block; font-variant-numeric: tabular-nums; color: var(--warm); font-size: 12px; }
+.never { background: var(--warm-soft); border-radius: 10px; padding: 10px 14px; font-size: 13.5px; }
+.price { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 14px; }
+.price b { font-variant-numeric: tabular-nums; }
+.ask { background: var(--brand-soft); border-radius: 14px; padding: 20px; display: grid; gap: 12px; }
+.ask h3 { margin: 0; font-family: var(--display); font-size: 19px; }
+.code { font: 600 14px/1.5 ui-monospace, "SF Mono", Menlo, monospace; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 12px; white-space: pre-wrap; word-break: break-all; user-select: all; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.ok { color: var(--brand); font-size: 13px; }
+footer { font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; }
+@media (max-width: 560px) { .timeline { grid-template-columns: 1fr 1fr; } .sheet { padding: 16px; } }
+@media (prefers-reduced-motion: no-preference) { .sheet { animation: rise .35s ease-out; } @keyframes rise { from { transform: translateY(6px); opacity: .6; } } }
+</style>
+
+<div class="wrap">
+  <header>
+    <span class="tag">시범 서비스 · 대학생 수업 프로젝트</span>
+    <h1>우리 회사 가까운 기관이 지금 필요한 도움을,<br><em>2주 안에</em> 임직원 봉사 프로그램으로 설계해 드립니다</h1>
+    <p class="lead">전담팀 없이 지역 봉사를 혼자 맡으셨나요? 조건 다섯 가지만 고르면, 실제로 받게 될 ‘설계 키트’가 어떤 모습인지 바로 보여 드립니다.</p>
+    <div class="facts"><span><b>대상</b> 지역 중소·중견기업 사회공헌·총무 담당자</span><span><b>소요</b> 3분</span><span><b>수집</b> 이름·연락처 없음</span></div>
+  </header>
+
+  <section aria-labelledby="checkTitle">
+    <h2 id="checkTitle">3분 체크</h2>
+    <p class="sub">해당하는 것을 하나씩 골라 주세요.</p>
+    <form id="checkForm">
+      <fieldset><legend>1. 회사가 있는 지역</legend><div class="opts" data-name="region"></div></fieldset>
+      <fieldset><legend>2. 참여할 임직원 수</legend><div class="opts" data-name="size"></div></fieldset>
+      <fieldset><legend>3. 가능한 시간</legend><div class="opts" data-name="time"></div></fieldset>
+      <fieldset><legend>4. 관심 있는 분야</legend><div class="opts" data-name="field"></div></fieldset>
+      <fieldset><legend>5. 지난 활동에서 가장 번거로웠던 일</legend><div class="opts" data-name="pain"></div></fieldset>
+      <button class="btn" type="submit">키트 미리보기 만들기</button>
+    </form>
+  </section>
+
+  <section id="preview" aria-live="polite"></section>
+
+  <footer>
+    만든 사람: 이윤진 (경제정책학전공, AI융합진로개척프로젝트 수업 프로젝트). 이 페이지는 어떤 개인정보도 저장하거나 보내지 않습니다. 미리보기의 기관 정보는 이해를 돕기 위한 예시이며, 실제 키트는 기관 담당자에게 직접 들은 내용으로 만듭니다.
+  </footer>
+</div>
+
+<script>
+const OPTIONS = {
+  region: ["세종", "대전", "청주", "그 밖의 지역"],
+  size: ["10명 이하", "10~30명", "30명 이상"],
+  time: ["평일 반나절(3시간)", "주말 반나절", "아직 모름"],
+  field: ["아동 학습", "어르신 돌봄", "환경·마을", "다문화 가정"],
+  pain: ["기관 수요 파악", "기관 섭외·조율", "프로그램 설계", "결과 정리·보고"],
+};
+const DEFAULTS = { region: "세종", size: "10~30명", time: "평일 반나절(3시간)", field: "아동 학습", pain: "기관 수요 파악" };
+
+const FIELD = {
+  "아동 학습": { org: "지역아동센터", needs: ["주 1회 독서·학습 지도 인력", "방학 중 체험 프로그램", "학습 교재·간식 지원"], program: "책 읽고 이야기 나누기 교실", detail: "임직원 2명이 아동 4~5명과 한 모둠. 같은 모둠이 2회차에도 같은 아이들을 만납니다." },
+  "어르신 돌봄": { org: "노인복지관 · 경로당", needs: ["스마트폰 사용 도움", "말벗·안부 확인", "나들이 동행 인력"], program: "어르신 스마트폰 짝꿍 교실", detail: "임직원 1명이 어르신 2명을 맡아 메시지·사진·병원 예약을 함께 연습합니다." },
+  "환경·마을": { org: "주민자치회 · 마을 공동체", needs: ["하천·공원 정화 인력", "마을 텃밭 가꾸기", "재활용 분리배출 안내"], program: "우리 동네 하천 지킴이", detail: "구역을 나눠 정화하고, 주민과 함께 다음 달 점검 일정을 정합니다." },
+  "다문화 가정": { org: "가족센터 · 다문화 지원 기관", needs: ["자녀 학습 멘토", "한국 생활 정보 안내", "가족 나들이 동행"], program: "다문화 가정 자녀 학습 멘토링", detail: "임직원과 자녀를 1:1 또는 1:2로 묶어 같은 짝이 2회차를 이어갑니다." },
+};
+
+function buildOptions() {
+  for (const box of document.querySelectorAll(".opts")) {
+    const name = box.dataset.name;
+    box.innerHTML = OPTIONS[name].map((v, i) => `<label><input type="radio" name="${name}" id="${name}-${i}" value="${v}" ${v === DEFAULTS[name] ? "checked" : ""}><span>${v}</span></label>`).join("");
+  }
+}
+
+function refCode() {
+  const h = (location.hash || "").replace("#", "").toUpperCase();
+  return /^[A-Z0-9-]{1,12}$/.test(h) ? h : "직접";
+}
+
+function render(sel) {
+  const f = FIELD[sel.field];
+  const people = sel.size === "10명 이하" ? "6~10명" : sel.size === "10~30명" ? "12~20명(두 조)" : "30명 이상(세 조, 2개 기관)";
+  const when = sel.time === "아직 모름" ? "기관 일정에 맞춰 평일·주말 중 제안" : sel.time;
+  const painLine = {
+    "기관 수요 파악": "첫 주에 기관을 직접 찾아가 담당자 이야기를 듣고 ‘필요 목록’을 받아 옵니다.",
+    "기관 섭외·조율": "기관 연락, 일정 조율, 당일 동선까지 저희가 맡습니다.",
+    "프로그램 설계": "시간표, 조 편성, 준비물 목록까지 바로 쓸 수 있게 드립니다.",
+    "결과 정리·보고": "활동 후 사내 보고에 바로 붙일 수 있는 성과 한 장을 드립니다.",
+  }[sel.pain];
+  const code = `[지역온기 신청] ${refCode()} / ${sel.region} / ${sel.size} / ${sel.field} / ${sel.pain}`;
+
+  document.getElementById("preview").innerHTML = `
+    <h2>키트 미리보기</h2>
+    <p class="sub">고르신 조건으로 만든 예시입니다. 실제 키트도 이 순서와 모양으로 드립니다.</p>
+    <article class="sheet">
+      <div class="sheet-head"><h3>${sel.region} · ${f.program}</h3><span class="stamp">예시 · 실제 기관 정보 아님</span></div>
+      <div class="part"><h4>① 기관 수요 한 장</h4>
+        <p>가까운 <b>${f.org}</b>에서 자주 듣는 필요 (예시)</p>
+        <ul>${f.needs.map((n) => `<li>${n}</li>`).join("")}</ul>
+        <p class="note">실제 키트에서는 기관 담당자에게 직접 듣고, 들은 내용만 적습니다.</p></div>
+      <div class="part"><h4>② 프로그램 초안</h4>
+        <p><b>${f.program}</b> · ${people} · ${when}</p>
+        <p>${f.detail}</p></div>
+      <div class="part"><h4>③ 2주 일정</h4>
+        <div class="timeline">
+          <div><b>D+1~3</b>기관 방문, 담당자 이야기 듣기</div>
+          <div><b>D+4</b>기관 수요 한 장 전달</div>
+          <div><b>D+7</b>프로그램 초안 전달</div>
+          <div><b>D+10</b>담당자 의견 반영해 확정</div>
+          <div><b>D+14</b>준비물·조 편성·안내문 완료</div>
+        </div></div>
+      <div class="part"><h4>④ 활동 후 성과 한 장</h4>
+        <p>참여 인원 · 활동 시간 · 기관이 말한 변화 · 다음 회차 계획을 한 장으로 정리해 사내 보고에 씁니다.</p></div>
+      <div class="part"><h4>담당자님이 번거로웠던 부분</h4><p>${painLine}</p></div>
+      <div class="never"><b>하지 않는 것</b> · 기관을 홍보 사진 배경으로 쓰지 않습니다. 한 번 찍고 끝나는 전시 행사를 만들지 않습니다. 2회차로 이어지게 설계합니다.</div>
+      <div class="price"><span>샘플 키트(위 ①~③을 실제 기관으로) <b>무료</b></span><span>실제 운영 패키지(예정) <b>1회 30만 원</b>, 선금 50%</span></div>
+    </article>
+    <div class="ask" style="margin-top:18px">
+      <h3>실제 샘플 키트를 받아 보시겠어요?</h3>
+      <p class="note" style="margin:0">아래 신청 문구를 복사해서, 이 링크를 받으신 곳(메시지·메일)에 그대로 답장해 주세요. 신청하셔도 비용은 들지 않고, 언제든 그만두실 수 있습니다.</p>
+      <div class="code" id="code">${code}</div>
+      <div class="row"><button class="btn" type="button" id="copyBtn">신청 문구 복사</button><span class="ok" id="copyMsg" hidden>복사했습니다. 링크를 받은 곳에 붙여 넣어 보내 주세요.</span></div>
+      <details><summary class="note" style="cursor:pointer">신청하지 않으신다면, 이유를 알려 주시면 큰 도움이 됩니다</summary>
+        <div class="row" style="margin-top:10px">${["가격이 부담", "지금은 계획 없음", "이미 하는 곳이 있음", "직접 하는 게 편함"].map((r, i) => `<button class="btn ghost" type="button" data-reason="${r}" id="reason-${i}">${r}</button>`).join("")}</div>
+      </details>
+    </div>`;
+
+  document.getElementById("copyBtn").onclick = () => copy(code);
+  document.querySelectorAll("[data-reason]").forEach((b) => b.onclick = () => {
+    const text = `[지역온기 의견] ${refCode()} / ${b.dataset.reason}`;
+    document.getElementById("code").textContent = text;
+    copy(text);
+  });
+}
+
+function copy(text) {
+  const msg = document.getElementById("copyMsg");
+  const done = () => { msg.hidden = false; };
+  try {
+    navigator.clipboard.writeText(text).then(done, () => { selectCode(); done(); });
+  } catch (e) { selectCode(); done(); }
+}
+function selectCode() {
+  const r = document.createRange(); r.selectNodeContents(document.getElementById("code"));
+  const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+}
+
+function current() {
+  const data = new FormData(document.getElementById("checkForm"));
+  return Object.fromEntries(Object.keys(OPTIONS).map((k) => [k, data.get(k)]));
+}
+
+buildOptions();
+render(current());
+document.getElementById("checkForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  render(current());
+  document.getElementById("preview").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+</script>
+
+</body>
+</html>
