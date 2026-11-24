@@ -1,9 +1,6 @@
 /* 지역 온기 — 화면 동작.
-   저장소: 시범 버전은 브라우저 localStorage에만 저장합니다(DB 객체). 서버를 붙일 때는 DB 객체만 바꾸면 됩니다.
-   추천은 규칙 기반으로 브라우저 안에서만 계산하고, 입력값을 외부 AI나 서버로 보내지 않습니다. */
-
-// 관리자 계정으로 인정할 이메일 (README.md 참고)
-const ADMIN_EMAILS = ["admin@onggi.test"];
+   저장소: 계정·의뢰·추천 결과는 Supabase(ongi_ 테이블)에, 입력 중인 답과 소개 코드만 브라우저에 둡니다.
+   추천은 규칙 기반으로 브라우저 안에서만 계산하고, 입력값을 외부 AI로 보내지 않습니다. */
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -13,6 +10,8 @@ const man = (n) => (n >= 10000 ? `${(Math.round(n / 1000) / 10).toLocaleString("
 const byId = (list, id) => list.find((x) => x.id === id);
 
 /* ---------- 저장소 ---------- */
+const sb = window.supabase && window.ONGI_CONFIG ? window.supabase.createClient(ONGI_CONFIG.supabaseUrl, ONGI_CONFIG.supabaseAnonKey) : null;
+// 브라우저에만 두는 편의 값 (입력 중인 답, 소개 코드)
 const DB = {
   get(key, fallback) {
     try { const v = localStorage.getItem(`onggi.${key}`); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
@@ -20,59 +19,69 @@ const DB = {
   set(key, value) {
     try { localStorage.setItem(`onggi.${key}`, JSON.stringify(value)); return true; } catch { return false; }
   },
-  users() { return this.get("users", []); },
-  requests() { return this.get("requests", []); },
 };
-
-async function hashPw(pw, salt) {
-  const text = `${salt}:${pw}`;
-  if (window.crypto?.subtle) {
-    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-    return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  }
-  let h = 2166136261; // 보안 컨텍스트가 아닐 때의 대체 해시 (시범용)
-  for (const c of text) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
-  return `f${(h >>> 0).toString(16)}`;
-}
+const must = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
 const rid = (p) => `${p}-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+const fromRow = (r) => ({ ...r, createdAt: r.created_at, when: r.when_text });
+
+// 행동 기록: 가명 세션 ID만 남깁니다(대시보드용). 실패해도 화면에는 영향이 없습니다.
+const SESSION = (() => { try { return sessionStorage.getItem("onggi.sid") || (sessionStorage.setItem("onggi.sid", crypto.randomUUID()), sessionStorage.getItem("onggi.sid")); } catch { return crypto.randomUUID(); } })();
+function track(type, name = null, value = null) {
+  sb?.from("ongi_events").insert({ session_id: SESSION, type, name: name && String(name).slice(0, 60), value }).then(() => {}, () => {});
+}
 
 /* ---------- 계정 ---------- */
+const ERR = {
+  "Invalid login credentials": "이메일 또는 비밀번호가 맞지 않습니다.",
+  "Email not confirmed": "받은 편지함의 인증 메일을 먼저 눌러 주세요.",
+  "User already registered": "이미 가입된 이메일입니다. 로그인해 주세요.",
+};
+const friendly = (m) => ERR[m] || (/rate limit/i.test(m) ? "잠시 후 다시 시도해 주세요." : m);
+let me = null; // { id, email, company, name, role }
 const Auth = {
-  current() {
-    const email = DB.get("session", null);
-    return email ? DB.users().find((u) => u.email === email) || null : null;
+  current() { return me; },
+  async load() {
+    if (!sb) return null;
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) { me = null; return null; }
+    const u = session.user;
+    const [{ data: acc }, { data: admin }] = await Promise.all([
+      sb.from("ongi_accounts").select("company, name").eq("id", u.id).maybeSingle(),
+      sb.rpc("is_admin"),
+    ]);
+    const meta = u.user_metadata || {};
+    if (!acc && meta.company) await sb.from("ongi_accounts").upsert({ id: u.id, company: meta.company, name: meta.name || "" });
+    me = { id: u.id, email: u.email, company: acc?.company || meta.company || "", name: acc?.name || meta.name || "", role: admin === true ? "admin" : "client" };
+    return me;
   },
-  isAdmin() { return this.current()?.role === "admin"; },
   async signUp({ email, pw, company, name }) {
-    const users = DB.users();
-    if (users.some((u) => u.email === email)) throw new Error("이미 가입된 이메일입니다. 로그인해 주세요.");
-    const salt = Math.random().toString(36).slice(2, 12);
-    const user = { email, salt, pw: await hashPw(pw, salt), company, name, role: ADMIN_EMAILS.includes(email) ? "admin" : "client", plans: [], createdAt: new Date().toISOString() };
-    users.push(user);
-    if (!DB.set("users", users)) throw new Error("이 브라우저에서는 저장할 수 없습니다. 시크릿 창이 아닌지 확인해 주세요.");
-    DB.set("session", email);
-    return user;
+    if (!sb) throw new Error("서버에 연결되어 있지 않습니다. 잠시 후 다시 시도해 주세요.");
+    // 배포 서버(api/signup)가 있으면 인증 메일 없이 바로 가입하고, 없으면 Supabase 인증 메일로 가입합니다.
+    const r = await fetch("api/signup", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password: pw, company, name }) }).catch(() => null);
+    if (r && r.ok) return this.signIn(email, pw);
+    if (r && r.status !== 404 && r.status !== 405) throw new Error((await r.json().catch(() => ({}))).message || "가입하지 못했습니다.");
+    const { data, error } = await sb.auth.signUp({ email, password: pw, options: { data: { company, name }, emailRedirectTo: location.origin + location.pathname } });
+    if (error) throw new Error(friendly(error.message));
+    if (!data.session) return "confirm";
+    await sb.from("ongi_accounts").upsert({ id: data.user.id, company, name });
+    return this.load();
   },
   async signIn(email, pw) {
-    const user = DB.users().find((u) => u.email === email);
-    if (!user || user.pw !== (await hashPw(pw, user.salt))) throw new Error("이메일 또는 비밀번호가 맞지 않습니다.");
-    DB.set("session", email);
-    return user;
+    if (!sb) throw new Error("서버에 연결되어 있지 않습니다.");
+    const { error } = await sb.auth.signInWithPassword({ email, password: pw });
+    if (error) throw new Error(friendly(error.message));
+    return this.load();
   },
-  signOut() { DB.set("session", null); },
-  update(patch) {
-    const users = DB.users();
-    const i = users.findIndex((u) => u.email === DB.get("session", null));
-    if (i < 0) return;
-    users[i] = { ...users[i], ...patch };
-    DB.set("users", users);
-  },
-  remove() {
-    const me = this.current();
-    if (!me) return;
-    DB.set("users", DB.users().filter((u) => u.email !== me.email));
-    DB.set("requests", DB.requests().filter((r) => r.owner !== me.email));
-    this.signOut();
+  async signOut() { await sb?.auth.signOut(); me = null; },
+  async update(patch) { if (me) { await sb.from("ongi_accounts").update(patch).eq("id", me.id); Object.assign(me, patch); } },
+  async remove() {
+    const { data: { session } } = await sb.auth.getSession();
+    await Promise.all([sb.from("ongi_requests").delete().eq("owner", me.id), sb.from("ongi_plans").delete().eq("owner", me.id)]);
+    await sb.from("ongi_accounts").delete().eq("id", me.id);
+    // 로그인 계정 자체는 서버(api/delete-account)가 비밀 키로 지웁니다.
+    const r = await fetch("api/delete-account", { method: "POST", headers: { authorization: `Bearer ${session?.access_token}` } }).catch(() => null);
+    await this.signOut();
+    return !!(r && r.ok);
   },
 };
 
@@ -251,6 +260,7 @@ const STEPS = [
 
 function renderStep() {
   const s = STEPS[step];
+  track("step", String(step + 1));
   $("#stepLabel").textContent = `${step + 1}/${STEPS.length} ${s.label}`;
   $("#progressBar").style.width = `${((step + 1) / (STEPS.length + 1)) * 100}%`;
   $("#plannerForm").hidden = false; $("#result").hidden = true;
@@ -446,17 +456,20 @@ function profileChips(s) {
   return [s.region, s.industry, `${s.participants}명 참여`, `1회 ${man(s.budget)}`, ...s.images.map((id) => byId(IMAGES, id).label), byId(PURPOSES, s.purpose)?.label]
     .filter(Boolean).map((t) => `<span class="badge">${esc(t)}</span>`).join("");
 }
+// 추천 결과를 저장합니다. 로그인 전 결과는 주인 없이 남기고(통계용), 로그인하면 같은 코드로 내 것으로 다시 남깁니다.
+async function savePlan(res) {
+  if (!sb) return;
+  const row = { owner: me?.id || null, session_id: SESSION, input: res.input, top: res.top, code: res.code };
+  const { error } = await sb.from("ongi_plans").insert(row);
+  if (!error && me) res.ownedBy = me.id;
+}
 function showResult(res, { saved = false } = {}) {
   lastResult = res;
   const s = res.input, times = Number(s.times) || 1;
   $("#plannerForm").hidden = true; $("#result").hidden = false;
   $("#stepLabel").textContent = "추천 결과";
   $("#progressBar").style.width = "100%";
-  const me = Auth.current();
-  if (me && !saved) {
-    const plans = [res, ...(me.plans || [])].slice(0, 10);
-    Auth.update({ plans });
-  }
+  if (!saved) { savePlan(res); track("result", res.top[0]?.id); }
 
   const recs = res.top.map((r, i) => {
     const p = byId(PROGRAMS, r.id), c = r.cost;
@@ -511,13 +524,13 @@ function showResult(res, { saved = false } = {}) {
     ${recs}
     ${res.top.length > 3 ? `<button class="pill ghost more" type="button" id="moreBtn">추천 ${res.top.length - 3}개 더 보기</button>` : ""}
     <p class="disclaimer">예상 비용은 비슷한 지역 활동을 기준으로 잡은 기획용 추정치이며, 실제 금액은 기관 방문 뒤 ‘기관 수요 한 장’과 함께 다시 안내해 드립니다. 기관 정보는 예시이고, 실제 프로그램은 기관 담당자에게 직접 들은 필요로 만듭니다. ${payNote}</p>
-    ${me ? `<p class="note" style="margin-top:10px">이 결과는 ‘내 의뢰’의 저장한 추천에 남았습니다.</p>` : `<p class="note" style="margin-top:10px">로그인하면 이 결과가 저장되고, 의뢰 진행 상황도 확인할 수 있습니다.</p>`}`;
+    ${me || saved ? `<p class="note" style="margin-top:10px">이 결과는 ‘내 의뢰’의 저장한 추천에 남았습니다.</p>` : `<p class="note" style="margin-top:10px">로그인하면 이 결과가 저장되고, 의뢰 진행 상황도 확인할 수 있습니다.</p>`}`;
   $("#againBtn").onclick = () => { step = 0; renderStep(); };
   const more = $("#moreBtn");
   if (more) more.onclick = () => { $$("[data-more]").forEach((el) => { el.hidden = false; }); more.remove(); };
   const copy = (text, msg) => (navigator.clipboard?.writeText(text) || Promise.reject()).then(() => toast(msg), () => window.prompt("아래 내용을 복사해 주세요.", text));
-  $("#copyCode")?.addEventListener("click", () => copy(res.code, "할인 코드를 복사했습니다."));
-  $("#shareRef")?.addEventListener("click", () => copy(`지역 온기에서 우리 회사에 맞는 임직원 봉사를 추천받아 보세요. 이 링크로 들어오면 대행비 할인 혜택이 있습니다. ${location.origin}${location.pathname}?ref=${res.code}`, "소개 링크를 복사했습니다. 다른 회사 담당자에게 보내 주세요."));
+  $("#copyCode")?.addEventListener("click", () => { track("code", "copy"); copy(res.code, "할인 코드를 복사했습니다."); });
+  $("#shareRef")?.addEventListener("click", () => track("code", "share") || copy(`지역 온기에서 우리 회사에 맞는 임직원 봉사를 추천받아 보세요. 이 링크로 들어오면 대행비 할인 혜택이 있습니다. ${location.origin}${location.pathname}?ref=${res.code}`, "소개 링크를 복사했습니다. 다른 회사 담당자에게 보내 주세요."));
   $("#planner .sheet").scrollTop = 0;
 }
 
@@ -564,28 +577,36 @@ $("#authForm").addEventListener("submit", async (e) => {
   const f = Object.fromEntries(new FormData(e.target));
   const err = $("#authErr");
   const email = (f.email || "").trim().toLowerCase();
+  const btn = $('[type="submit"]', e.target), label = btn.textContent;
+  btn.disabled = true; btn.textContent = "처리하는 중…"; err.textContent = "";
   try {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("이메일 형식을 확인해 주세요.");
     if (authMode === "in") {
       if (!f.pw) throw new Error("비밀번호를 입력해 주세요.");
       await Auth.signIn(email, f.pw);
+      if (me.role === "admin") { location.href = "admin.html"; return; } // 관리자는 바로 대시보드로
       toast("로그인했습니다.");
     } else {
       if ((f.pw || "").length < 8) throw new Error("비밀번호는 8자 이상으로 정해 주세요.");
       if (f.pw !== f.pw2) throw new Error("비밀번호가 서로 다릅니다.");
       if (!f.company?.trim() || !f.name?.trim()) throw new Error("회사명과 담당자 이름을 적어 주세요.");
       if (!f.agree) throw new Error("필수 항목 수집·이용에 동의해 주세요.");
-      await Auth.signUp({ email, pw: f.pw, company: f.company.trim(), name: f.name.trim() });
+      const out = await Auth.signUp({ email, pw: f.pw, company: f.company.trim(), name: f.name.trim() });
+      if (out === "confirm") {
+        authMode = "in"; renderAuth(`${email}로 인증 메일을 보냈습니다. 메일의 링크를 누른 뒤 여기서 로그인해 주세요. 입력하신 추천 결과는 그대로 남아 있습니다.`);
+        $("#aEmail").value = email; return;
+      }
       toast("가입했습니다. 환영합니다!");
     }
     refreshNav();
     closeOverlay("auth");
-    if (lastResult && !$("#result").hidden && Auth.current()) Auth.update({ plans: [lastResult, ...(Auth.current().plans || [])].slice(0, 10) });
+    if (lastResult && lastResult.ownedBy !== me.id) savePlan(lastResult);
     if (pendingProgram) openRequest();
   } catch (ex) { err.textContent = ex.message; }
+  finally { btn.disabled = false; btn.textContent = label; }
 });
 $("#authBtn").addEventListener("click", () => (Auth.current() ? openMyPage() : openAuth("in")));
-$("#adminLink").addEventListener("click", (e) => { e.preventDefault(); openMyPage(); });
+$("#adminLink").addEventListener("click", (e) => { e.preventDefault(); location.href = "admin.html"; });
 
 /* ---------- 의뢰 신청 ---------- */
 function openRequest() {
@@ -634,7 +655,7 @@ function openRequest() {
     <div class="nav-btns"><button class="pill ghost" type="button" data-close>취소</button><button class="pill" type="submit">의뢰 신청하기</button></div>`;
   openOverlay("request");
 }
-$("#reqForm").addEventListener("submit", (e) => {
+$("#reqForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const f = Object.fromEntries(new FormData(e.target));
   const err = $("#reqErr");
@@ -648,17 +669,19 @@ $("#reqForm").addEventListener("submit", (e) => {
   if (f.bizNo && f.bizNo.replace(/[^0-9]/g, "").length !== 10) { err.textContent = "사업자등록번호는 숫자 10자리입니다. 모르시면 비워 두세요."; return; }
   if (!f.agree) { err.textContent = "개인정보 수집·이용에 동의해 주셔야 의뢰를 받을 수 있습니다."; return; }
 
-  const me = Auth.current();
   const rec = lastResult?.top.find((r) => r.id === pendingProgram) || null;
   const req = {
-    id: rid("OG"), owner: me.email, status: "new", createdAt: new Date().toISOString(),
-    program: pendingProgram, estimate: rec ? rec.cost.total : null,
+    id: rid("OG"), owner: me.id, program: pendingProgram, estimate: rec ? Math.round(rec.cost.total) : null,
     contact: { company: f.company.trim(), bizNo: f.bizNo?.trim() || "", name: f.name.trim(), dept: f.dept.trim(), phone: f.phone.trim(), email: f.email.trim(), addr: f.addr.trim(), contactBy: f.contactBy, contactTime: f.contactTime },
-    when: f.when, memo: f.memo?.trim() || "", plan: lastResult?.input || null, consentAt: new Date().toISOString(),
-    code: lastResult?.code || "", ref: referral || "",
+    when_text: f.when, memo: f.memo?.trim() || "", plan: lastResult?.input || null, consent_at: new Date().toISOString(),
+    code: lastResult?.code || null, ref: referral || null,
   };
-  const all = DB.requests(); all.unshift(req);
-  if (!DB.set("requests", all)) { err.textContent = "저장하지 못했습니다. 시크릿 창이 아닌지 확인해 주세요."; return; }
+  const btn = $('[type="submit"]', e.target);
+  btn.disabled = true; btn.textContent = "접수하는 중…";
+  const { error } = await sb.from("ongi_requests").insert(req);
+  btn.disabled = false; btn.textContent = "의뢰 신청하기";
+  if (error) { err.textContent = "접수하지 못했습니다. 인터넷 연결을 확인하고 다시 눌러 주세요. 입력하신 내용은 그대로 있습니다."; return; }
+  track("request", pendingProgram);
   if (f.company.trim() !== me.company) Auth.update({ company: f.company.trim() });
   pendingProgram = null;
   closeOverlay("request"); closeOverlay("planner");
@@ -666,101 +689,89 @@ $("#reqForm").addEventListener("submit", (e) => {
   openMyPage();
 });
 
-/* ---------- 내 의뢰 · 관리자 ---------- */
+/* ---------- 내 의뢰 ---------- */
 const STATUS = { new: "접수", contact: "연락 중", plan: "기획 중", done: "완료", cancel: "취소" };
 const fmtDate = (iso) => new Date(iso).toLocaleDateString("ko-KR", { year: "numeric", month: "short", day: "numeric" });
-let adminFilter = "all";
+let myPlans = [];
 
-function reqCard(r, admin) {
+function reqCard(r) {
   const p = byId(PROGRAMS, r.program), c = r.contact;
   return `<article class="req-item">
     <div class="top"><h3>${esc(p?.name || "프로그램 미정")}</h3><span class="st st-${r.status}">${STATUS[r.status]}</span></div>
     <dl>
       <dt>접수번호</dt><dd>${esc(r.id)} · ${fmtDate(r.createdAt)}</dd>
-      ${admin ? `<dt>회사</dt><dd>${esc(c.company)}${c.bizNo ? ` (${esc(c.bizNo)})` : ""} · ${esc(c.addr)}</dd>
-      <dt>담당자</dt><dd>${esc(c.name)} · ${esc(c.dept)}</dd>
-      <dt>연락처</dt><dd>${esc(c.phone)} · ${esc(c.email)}</dd>
-      <dt>연락 선호</dt><dd>${esc(c.contactBy)} · ${esc(c.contactTime)}</dd>` : `<dt>연락 받을 곳</dt><dd>${esc(c.contactBy)} · ${esc(c.contactBy === "이메일" ? c.email : c.phone)}</dd>`}
+      <dt>연락 받을 곳</dt><dd>${esc(c.contactBy)} · ${esc(c.contactBy === "이메일" ? c.email : c.phone)}</dd>
       <dt>희망 시기</dt><dd>${esc(r.when)}${r.plan ? ` · ${r.plan.participants}명 · 예산 ${man(r.plan.budget)}` : ""}</dd>
       ${r.estimate ? `<dt>예상 비용</dt><dd>${won(r.estimate)} (추정)</dd>` : ""}
-      ${r.code || r.ref ? `<dt>할인 코드</dt><dd>${esc(r.code || "")}${r.ref ? ` · 소개 ${esc(r.ref)}` : ""}</dd>` : ""}
-      ${r.plan ? `<dt>기업 방향</dt><dd>${esc(r.plan.images.map((id) => byId(IMAGES, id).label).join(", "))} · ${esc(byId(PURPOSES, r.plan.purpose)?.label || "")}</dd>` : ""}
+      ${r.code ? `<dt>할인 코드</dt><dd>${esc(r.code)}</dd>` : ""}
       ${r.memo ? `<dt>요청 사항</dt><dd>${esc(r.memo)}</dd>` : ""}
     </dl>
-    ${admin ? `<div class="row2"><div class="field" style="margin:0"><label for="st-${r.id}">진행 상태</label><select id="st-${r.id}" data-status="${r.id}">${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${k === r.status ? "selected" : ""}>${v}</option>`).join("")}</select></div></div>`
-      : r.status === "new" ? `<div><button class="pill ghost sm" type="button" data-cancel="${r.id}">의뢰 철회</button></div>` : ""}
+    ${r.status === "new" ? `<div><button class="pill ghost sm" type="button" data-cancel="${esc(r.id)}">의뢰 철회</button></div>` : ""}
   </article>`;
 }
 
-function openMyPage() {
-  const me = Auth.current();
+async function openMyPage() {
   if (!me) { openAuth("in"); return; }
-  renderMyPage(); openOverlay("mypage");
+  if (me.role === "admin") { location.href = "admin.html"; return; }
+  $("#myBody").innerHTML = `<p class="empty">불러오는 중…</p>`;
+  openOverlay("mypage");
+  try { await renderMyPage(); } catch { $("#myBody").innerHTML = `<p class="empty">불러오지 못했습니다. 잠시 후 다시 열어 주세요.</p>`; }
 }
-function renderMyPage() {
-  const me = Auth.current();
-  const admin = me.role === "admin";
-  $("#myEyebrow").textContent = admin ? "관리자 · 의뢰 관리" : "내 의뢰";
-  if (admin) {
-    const all = DB.requests();
-    const list = all.filter((r) => adminFilter === "all" || r.status === adminFilter);
-    const count = (s) => all.filter((r) => r.status === s).length;
-    $("#myBody").innerHTML = `
-      <h2>들어온 의뢰</h2>
-      <p class="note">시범 버전에서는 이 브라우저에 저장된 의뢰만 보입니다. 연락처는 연락 목적 외에 쓰지 않습니다.</p>
-      <div class="stats"><div><b>${all.length}</b><span>전체 의뢰</span></div><div><b>${count("new")}</b><span>새 의뢰 (연락 전)</span></div><div><b>${count("contact") + count("plan")}</b><span>진행 중</span></div><div><b>${count("done")}</b><span>완료</span></div></div>
-      <div class="admin-bar">
-        <div class="chips" style="margin:0">${[["all", "전체"], ...Object.entries(STATUS)].map(([k, v]) => `<button class="chip ${k === adminFilter ? "on" : ""}" type="button" data-afilter="${k}">${v}</button>`).join("")}</div>
-        <div style="display:flex;gap:8px"><button class="pill ghost sm" type="button" id="csvBtn" ${all.length ? "" : "disabled"}>CSV 내려받기</button><button class="pill ghost sm" type="button" id="logoutBtn">로그아웃</button></div>
-      </div>
-      <div class="req-list">${list.length ? list.map((r) => reqCard(r, true)).join("") : `<p class="empty">해당하는 의뢰가 없습니다.</p>`}</div>`;
-  } else {
-    const mine = DB.requests().filter((r) => r.owner === me.email);
-    const plans = me.plans || [];
-    $("#myBody").innerHTML = `
-      <div class="res-head"><div><h2>${esc(me.company)} · ${esc(me.name)} 님</h2><p class="note">${esc(me.email)}</p></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="pill sm" type="button" id="newPlanBtn">새 추천 받기</button><button class="pill ghost sm" type="button" id="logoutBtn">로그아웃</button></div></div>
-      <h3 style="margin-top:8px">의뢰 진행 상황</h3>
-      <div class="req-list">${mine.length ? mine.map((r) => reqCard(r, false)).join("") : `<div class="empty">아직 신청한 의뢰가 없습니다.<br>맞춤 추천을 받고 마음에 드는 안으로 의뢰해 보세요.</div>`}</div>
-      <h3 style="margin-top:28px">저장한 추천</h3>
-      <div class="req-list">${plans.length ? plans.map((pl, i) => `<article class="req-item"><div class="top"><h3>${esc(byId(PROGRAMS, pl.top[0]?.id)?.name || "")} 외 ${pl.top.length - 1}개</h3><span class="note">${fmtDate(pl.at)}</span></div>
-        <div class="profile" style="margin:0">${profileChips(pl.input)}</div><div><button class="pill ghost sm" type="button" data-plan="${i}">결과 다시 보기</button></div></article>`).join("") : `<p class="empty">저장한 추천이 없습니다.</p>`}</div>
-      <p class="note" style="margin-top:28px">계정을 지우면 저장한 추천과 의뢰 기록이 모두 삭제됩니다. <button class="pill ghost sm" type="button" id="deleteMe" style="margin-left:6px">계정 삭제</button></p>`;
-  }
+async function renderMyPage() {
+  const [reqs, plans] = await Promise.all([
+    sb.from("ongi_requests").select("*").eq("owner", me.id).order("created_at", { ascending: false }).then(must),
+    sb.from("ongi_plans").select("input, top, code, created_at").eq("owner", me.id).order("created_at", { ascending: false }).limit(10).then(must),
+  ]);
+  const mine = reqs.map(fromRow);
+  myPlans = plans.map((p) => ({ input: p.input, top: p.top, code: p.code, at: p.created_at }));
+  $("#myEyebrow").textContent = "내 의뢰";
+  $("#myBody").innerHTML = `
+    <div class="res-head"><div><h2>${esc(me.company)} · ${esc(me.name)} 님</h2><p class="note">${esc(me.email)}</p></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="pill sm" type="button" id="newPlanBtn">새 추천 받기</button><button class="pill ghost sm" type="button" id="logoutBtn">로그아웃</button></div></div>
+    <h3 style="margin-top:8px">의뢰 진행 상황</h3>
+    <div class="req-list">${mine.length ? mine.map(reqCard).join("") : `<div class="empty">아직 신청한 의뢰가 없습니다.<br>맞춤 추천을 받고 마음에 드는 안으로 의뢰해 보세요.</div>`}</div>
+    <h3 style="margin-top:28px">저장한 추천</h3>
+    <div class="req-list">${myPlans.length ? myPlans.map((pl, i) => `<article class="req-item"><div class="top"><h3>${esc(byId(PROGRAMS, pl.top[0]?.id)?.name || "")} 외 ${pl.top.length - 1}개</h3><span class="note">${fmtDate(pl.at)}</span></div>
+      <div class="profile" style="margin:0">${profileChips(pl.input)}</div><div><button class="pill ghost sm" type="button" data-plan="${i}">결과 다시 보기</button></div></article>`).join("") : `<p class="empty">저장한 추천이 없습니다.</p>`}</div>
+    <p class="note" style="margin-top:28px">계정을 지우면 저장한 추천과 의뢰 기록이 모두 삭제됩니다. <button class="pill ghost sm" type="button" id="deleteMe" style="margin-left:6px">계정 삭제</button></p>`;
 }
-$("#myBody").addEventListener("click", (e) => {
+$("#myBody").addEventListener("click", async (e) => {
   const t = e.target;
-  if (t.id === "logoutBtn") { Auth.signOut(); refreshNav(); closeOverlay("mypage"); toast("로그아웃했습니다."); }
+  if (t.id === "logoutBtn") { await Auth.signOut(); refreshNav(); closeOverlay("mypage"); toast("로그아웃했습니다."); }
   if (t.id === "newPlanBtn") { closeOverlay("mypage"); openPlanner(true); }
-  if (t.id === "csvBtn") exportCsv();
-  if (t.id === "deleteMe" && confirm("계정과 저장한 추천, 의뢰 기록을 모두 삭제합니다. 되돌릴 수 없습니다. 계속할까요?")) { Auth.remove(); refreshNav(); closeOverlay("mypage"); toast("계정을 삭제했습니다."); }
-  if (t.dataset.afilter) { adminFilter = t.dataset.afilter; renderMyPage(); }
+  if (t.id === "deleteMe" && confirm("계정과 저장한 추천, 의뢰 기록을 모두 삭제합니다. 되돌릴 수 없습니다. 계속할까요?")) {
+    const full = await Auth.remove(); refreshNav(); closeOverlay("mypage");
+    toast(full ? "계정을 삭제했습니다." : "추천·의뢰 기록을 삭제했습니다. 로그인 정보까지 지우려면 문의해 주세요.");
+  }
   if (t.dataset.cancel && confirm("이 의뢰를 철회할까요? 철회하면 연락처 정보도 함께 지웁니다.")) {
-    const all = DB.requests().map((r) => r.id === t.dataset.cancel ? { ...r, status: "cancel", contact: { ...r.contact, phone: "(파기)", email: "(파기)", bizNo: "" } } : r);
-    DB.set("requests", all); renderMyPage(); toast("의뢰를 철회했습니다.");
+    const { error } = await sb.rpc("ongi_cancel_request", { rid: t.dataset.cancel });
+    toast(error ? "철회하지 못했습니다. 잠시 후 다시 시도해 주세요." : "의뢰를 철회했습니다."); renderMyPage();
   }
   if (t.dataset.plan) {
-    const pl = Auth.current().plans[Number(t.dataset.plan)];
+    const pl = myPlans[Number(t.dataset.plan)];
     closeOverlay("mypage"); openOverlay("planner"); showResult(pl, { saved: true });
   }
 });
-$("#myBody").addEventListener("change", (e) => {
-  const id = e.target.dataset.status; if (!id) return;
-  DB.set("requests", DB.requests().map((r) => (r.id === id ? { ...r, status: e.target.value } : r)));
-  toast(`상태를 ‘${STATUS[e.target.value]}’(으)로 바꿨습니다.`); renderMyPage();
-});
-
-function exportCsv() {
-  const head = ["접수번호", "접수일", "상태", "회사명", "사업자등록번호", "소재지", "담당자", "부서직함", "연락처", "이메일", "연락방법", "연락시간", "희망시기", "프로그램", "예상비용", "참여인원", "1회예산", "할인코드", "소개코드", "요청사항"];
-  const rows = DB.requests().map((r) => [r.id, fmtDate(r.createdAt), STATUS[r.status], r.contact.company, r.contact.bizNo, r.contact.addr, r.contact.name, r.contact.dept, r.contact.phone, r.contact.email, r.contact.contactBy, r.contact.contactTime, r.when, byId(PROGRAMS, r.program)?.name || "", r.estimate || "", r.plan?.participants || "", r.plan?.budget || "", r.code || "", r.ref || "", r.memo]);
-  const csv = "﻿" + [head, ...rows].map((row) => row.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-  a.download = `지역온기_의뢰_${new Date().toISOString().slice(0, 10)}.csv`;
-  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
 
 /* ---------- 시작 ---------- */
 renderPrograms();
 refreshNav();
-if (new URLSearchParams(location.search).get("ref") && referral) toast("소개 링크로 오셨네요. 의뢰하시면 대행비 10% 할인이 적용됩니다.");
+Auth.load().then(refreshNav, () => {});
+sb?.auth.onAuthStateChange((ev) => { if (ev === "SIGNED_IN" || ev === "SIGNED_OUT") Auth.load().then(refreshNav, () => {}); });
+track("visit", document.referrer ? new URL(document.referrer).hostname : "direct");
+if (new URLSearchParams(location.search).get("ref") && referral) { track("ref", referral); toast("소개 링크로 오셨네요. 의뢰하시면 대행비 10% 할인이 적용됩니다."); }
+
+// 섹션별 체류 시간과 버튼 클릭 (대시보드용)
+const seen = new Map();
+const io = new IntersectionObserver((list) => list.forEach((en) => {
+  const id = en.target.id || en.target.dataset.sec;
+  if (en.isIntersecting) seen.set(id, performance.now());
+  else if (seen.has(id)) { track("section", id, Math.round(performance.now() - seen.get(id))); seen.delete(id); }
+}), { threshold: .4 });
+$$("main > section").forEach((s) => io.observe(s));
+document.addEventListener("visibilitychange", () => { if (document.hidden) { seen.forEach((t0, id) => track("section", id, Math.round(performance.now() - t0))); seen.clear(); } });
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("button, a"); if (!b) return;
+  const name = b.dataset.track || b.textContent.trim().replace(/\s+/g, " ").slice(0, 30);
+  if (name) track("click", name);
+});

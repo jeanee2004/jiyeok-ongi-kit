@@ -33,7 +33,7 @@
 
 <main>
   <!-- 히어로 -->
-  <section class="hero">
+  <section class="hero" data-sec="hero">
     <div class="wrap hero-in">
       <div>
       <p class="audience">기업 사회공헌·총무 담당자를 위한 서비스</p>
@@ -59,7 +59,7 @@
   </section>
 
   <!-- 대상 -->
-  <section class="sec slim">
+  <section class="sec slim" data-sec="who">
     <div class="wrap">
       <div class="who">
         <div><p class="kicker">이런 분을 위한 사이트입니다</p><h2>지역 봉사를 맡았지만,<br>어디서부터 할지 막막한 기업</h2></div>
@@ -78,7 +78,7 @@
   </section>
 
   <!-- 문제 -->
-  <section class="sec">
+  <section class="sec" data-sec="pain">
     <div class="wrap">
       <p class="kicker">이런 고민이 있으셨다면</p>
       <h2>담당자 한 명이 다 하기엔 일이 많습니다</h2>
@@ -119,7 +119,7 @@
   </section>
 
   <!-- 하지 않는 것 -->
-  <section class="sec">
+  <section class="sec" data-sec="never">
     <div class="wrap never-wrap">
       <div>
         <p class="kicker">약속</p>
@@ -178,7 +178,7 @@
     </div>
   </section>
 
-  <section class="sec cta-band">
+  <section class="sec cta-band" data-sec="cta">
     <div class="wrap">
       <h2>예산과 방향만 알려 주세요.<br>가성비 좋은 봉사 6가지를 바로 보여 드립니다.</h2>
       <button class="pill lg light" type="button" data-open-planner>맞춤 추천 시작 <span aria-hidden="true">↘</span></button>
@@ -223,7 +223,7 @@
     <h2 id="authTitle">다시 오셨네요</h2>
     <p class="note" id="authReason"></p>
     <form id="authForm" novalidate></form>
-    <p class="demo-note">시범 버전: 계정과 의뢰는 이 브라우저에만 저장됩니다. 서버 연결 후에는 운영 서버에 안전하게 저장됩니다.</p>
+    <p class="note" style="margin:16px 0 0">비밀번호는 암호화되어 저장되며, 이메일은 로그인과 의뢰 안내에만 씁니다.</p>
   </div>
 </div>
 
@@ -254,6 +254,8 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
 <script src="data.js"></script>
 <script src="app.js"></script>
 </body>

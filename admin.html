@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>관리자 대시보드 · 지역 온기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,500&family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@600;700&display=swap">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="admin.css">
+</head>
+<body class="adm">
+<header class="nav scrolled">
+  <div class="nav-in">
+    <a class="logo" href="index.html"><span class="logo-mark" aria-hidden="true"></span><span>지역 온기</span></a>
+    <span class="adm-tag">관리자</span>
+    <div class="nav-act" id="admAct" hidden>
+      <button class="pill ghost sm" type="button" id="refreshBtn">새로고침</button>
+      <button class="pill ghost sm adm-noprint" type="button" onclick="print()">인쇄·PDF</button>
+      <button class="pill ghost sm" type="button" id="logoutBtn">로그아웃</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap adm-main">
+  <!-- 로그인 · 권한 -->
+  <section id="gate" class="adm-gate" hidden>
+    <h1>관리자 로그인</h1>
+    <p class="note" id="gateMsg">관리자 계정으로 로그인해 주세요.</p>
+    <form id="gateForm" novalidate>
+      <div class="field"><label for="gEmail">이메일</label><input type="email" id="gEmail" name="email" autocomplete="username" required></div>
+      <div class="field"><label for="gPw">비밀번호</label><input type="password" id="gPw" name="pw" autocomplete="current-password" required></div>
+      <p class="err" id="gateErr"></p>
+      <button class="pill" type="submit">로그인</button>
+    </form>
+  </section>
+
+  <div id="dash" hidden>
+    <div class="adm-head">
+      <div><p class="kicker">Dashboard</p><h1>운영 현황</h1><p class="note" id="asOf"></p></div>
+      <div class="chips adm-noprint" id="periodChips" role="tablist" aria-label="기간"></div>
+    </div>
+
+    <h2 class="adm-h2">핵심 지표<small id="kpiNote"></small></h2>
+    <div class="kpis" id="kpis"></div>
+
+    <h2 class="adm-h2">핵심 인사이트 · 개선 제안<small>규칙으로 뽑은 요약과 AI 요약</small></h2>
+    <div class="adm-grid">
+      <div class="adm-card w6"><h3>자동 인사이트</h3><ul class="ins" id="insights"></ul></div>
+      <div class="adm-card w6"><h3>개선 제안</h3><ul class="ins" id="suggest"></ul></div>
+      <div class="adm-card w12">
+        <div class="adm-row"><h3>AI 요약 <span class="note">(집계 숫자만 보냅니다 · 연락처·회사명 제외)</span></h3><button class="pill ghost sm adm-noprint" type="button" id="aiBtn">AI 요약 만들기</button></div>
+        <p class="ai" id="aiOut">버튼을 누르면 이 기간의 지표를 Gemini가 요약합니다.</p>
+      </div>
+    </div>
+
+    <h2 class="adm-h2">행동 · 추천 분석<small>어디서 머물고, 무엇을 누르고, 어느 단계에서 그만두는지</small></h2>
+    <div class="adm-grid">
+      <div class="adm-card w8"><h3>일별 추이</h3><p class="take">하루 방문 세션(막대)과 추천 시작(선), 의뢰(점)예요.</p><div id="daily"></div></div>
+      <div class="adm-card w4"><h3>섹션별 평균 체류</h3><p class="take">첫 화면 각 부분이 화면에 보인 평균 시간이에요.</p><div id="sections"></div></div>
+      <div class="adm-card w6"><h3>추천 단계별 이탈</h3><p class="take">각 단계에 들어온 세션 수예요. 분홍은 다음 단계로 못 간 세션이에요.</p><div id="funnel"></div></div>
+      <div class="adm-card w6"><h3>버튼 클릭 순위</h3><p class="take">많이 눌린 버튼 상위 10개예요.</p><div id="clicks"></div></div>
+      <div class="adm-card w6"><h3>많이 추천된 프로그램</h3><p class="take">추천 결과 1~3위에 오른 횟수예요.</p><div id="recTop"></div></div>
+      <div class="adm-card w6"><h3>의뢰로 이어진 프로그램</h3><p class="take">실제 의뢰가 들어온 프로그램이에요.</p><div id="reqTop"></div></div>
+    </div>
+
+    <h2 class="adm-h2">응답 분포<small id="respNote"></small></h2>
+    <div class="adm-grid" id="dists"></div>
+
+    <h2 class="adm-h2">의뢰 관리<small>연락처는 연락 목적 외에 쓰지 않습니다</small></h2>
+    <div class="adm-card w12">
+      <div class="pipe" id="pipe"></div>
+      <div class="adm-row adm-noprint">
+        <input type="search" id="reqSearch" placeholder="회사명·담당자·접수번호로 찾기" aria-label="의뢰 검색">
+        <div class="chips" id="statusChips"></div>
+      </div>
+      <div class="req-list" id="reqList"></div>
+    </div>
+
+    <h2 class="adm-h2 adm-noprint">원자료 내려받기<small>엑셀에서 열리는 CSV</small></h2>
+    <div class="adm-row adm-noprint">
+      <button class="pill ghost sm" type="button" data-csv="requests">의뢰 (연락처 포함)</button>
+      <button class="pill ghost sm" type="button" data-csv="plans">추천 응답 (개인정보 없음)</button>
+      <button class="pill ghost sm" type="button" data-csv="events">행동 기록 (가명 세션)</button>
+    </div>
+  </div>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="data.js"></script>
+<script src="admin.js"></script>
+</body>
+</html>
