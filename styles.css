@@ -352,3 +352,6 @@ input[type="range"] { width: 100%; accent-color: var(--ember); margin-top: 8px; 
 @media (max-width: 560px) { .coupon { grid-template-columns: 1fr; } .coupon .rec-act { grid-column: 1; grid-row: auto; flex-direction: row; } }
 .rec.compact { grid-template-columns: 1fr; gap: 10px; }
 .more { width: 100%; margin: 4px 0 14px; }
+
+.link-btn { appearance: none; border: 0; background: none; color: var(--ink-2); font-size: 13.5px; text-decoration: underline; cursor: pointer; margin-top: 12px; padding: 4px; width: 100%; }
+.link-btn:hover { color: var(--ink); }

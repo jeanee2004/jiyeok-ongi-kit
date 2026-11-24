@@ -548,13 +548,28 @@ function openAuth(mode = "in", reason = "") {
 }
 function renderAuth(reason = $("#authReason").textContent) {
   $$(".tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.mode === authMode));
-  $("#authTitle").textContent = authMode === "in" ? "다시 오셨네요" : "기업 담당자 가입";
+  $("#authTitle").textContent = { in: "다시 오셨네요", up: "기업 담당자 가입", reset: "비밀번호 재설정", newpw: "새 비밀번호 정하기" }[authMode];
+  $(".tabs").hidden = authMode === "reset" || authMode === "newpw";
+  if (authMode === "reset" || authMode === "newpw") {
+    $("#authReason").textContent = reason || (authMode === "reset" ? "가입한 이메일로 비밀번호를 바꿀 수 있는 링크를 보내 드립니다." : "앞으로 쓸 비밀번호를 정해 주세요.");
+    $("#authForm").innerHTML = authMode === "reset" ? `
+      <div class="field"><label for="aEmail">가입한 이메일</label><input type="email" id="aEmail" name="email" autocomplete="username" required></div>
+      <p class="err" id="authErr"></p>
+      <button class="pill" type="submit">재설정 메일 보내기</button>
+      <button class="pill ghost" type="button" data-mode-go="in" style="margin-top:8px">로그인으로 돌아가기</button>` : `
+      <div class="field"><label for="aPw">새 비밀번호</label><input type="password" id="aPw" name="pw" autocomplete="new-password" minlength="8" required placeholder="8자 이상"></div>
+      <div class="field"><label for="aPw2">새 비밀번호 확인</label><input type="password" id="aPw2" name="pw2" autocomplete="new-password" required></div>
+      <p class="err" id="authErr"></p>
+      <button class="pill" type="submit">비밀번호 바꾸기</button>`;
+    return;
+  }
   $("#authReason").textContent = reason || (authMode === "in" ? "저장한 추천과 의뢰 진행 상황을 볼 수 있습니다." : "가입하면 추천 결과를 저장하고 의뢰를 신청할 수 있습니다.");
   $("#authForm").innerHTML = authMode === "in" ? `
     <div class="field"><label for="aEmail">이메일</label><input type="email" id="aEmail" name="email" autocomplete="username" required></div>
     <div class="field"><label for="aPw">비밀번호</label><input type="password" id="aPw" name="pw" autocomplete="current-password" required></div>
     <p class="err" id="authErr"></p>
-    <button class="pill" type="submit">로그인</button>` : `
+    <button class="pill" type="submit">로그인</button>
+    <button class="link-btn" type="button" data-mode-go="reset">비밀번호를 잊으셨나요?</button>` : `
     <div class="field"><label for="aEmail">업무용 이메일<span class="req">*</span></label><input type="email" id="aEmail" name="email" autocomplete="username" required></div>
     <div class="row2">
       <div class="field"><label for="aPw">비밀번호<span class="req">*</span></label><input type="password" id="aPw" name="pw" autocomplete="new-password" minlength="8" required placeholder="8자 이상"></div>
@@ -568,6 +583,11 @@ function renderAuth(reason = $("#authReason").textContent) {
     <p class="err" id="authErr"></p>
     <button class="pill" type="submit">가입하고 계속하기</button>`;
 }
+$("#authForm").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-mode-go]"); if (!b) return;
+  const email = $("#aEmail")?.value;
+  authMode = b.dataset.modeGo; renderAuth(""); if (email && $("#aEmail")) $("#aEmail").value = email;
+});
 $(".tabs").addEventListener("click", (e) => {
   const b = e.target.closest("[data-mode]"); if (!b) return;
   authMode = b.dataset.mode; renderAuth(""); $("#aEmail").focus();
@@ -580,7 +600,23 @@ $("#authForm").addEventListener("submit", async (e) => {
   const btn = $('[type="submit"]', e.target), label = btn.textContent;
   btn.disabled = true; btn.textContent = "처리하는 중…"; err.textContent = "";
   try {
+    if (authMode === "newpw") {
+      if ((f.pw || "").length < 8) throw new Error("비밀번호는 8자 이상으로 정해 주세요.");
+      if (f.pw !== f.pw2) throw new Error("비밀번호가 서로 다릅니다.");
+      const { error } = await sb.auth.updateUser({ password: f.pw });
+      if (error) throw new Error(friendly(error.message));
+      history.replaceState(null, "", location.pathname);
+      await Auth.load(); refreshNav(); closeOverlay("auth");
+      if (me?.role === "admin") { location.href = "admin.html"; return; }
+      toast("비밀번호를 바꿨습니다. 로그인되었습니다."); return;
+    }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("이메일 형식을 확인해 주세요.");
+    if (authMode === "reset") {
+      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+      if (error) throw new Error(friendly(error.message));
+      authMode = "in"; renderAuth(`${email}로 재설정 메일을 보냈습니다. 메일의 링크를 누르면 이 사이트에서 새 비밀번호를 정할 수 있습니다. 메일이 없으면 스팸함도 확인해 주세요.`);
+      $("#aEmail").value = email; return;
+    }
     if (authMode === "in") {
       if (!f.pw) throw new Error("비밀번호를 입력해 주세요.");
       await Auth.signIn(email, f.pw);
@@ -593,7 +629,7 @@ $("#authForm").addEventListener("submit", async (e) => {
       if (!f.agree) throw new Error("필수 항목 수집·이용에 동의해 주세요.");
       const out = await Auth.signUp({ email, pw: f.pw, company: f.company.trim(), name: f.name.trim() });
       if (out === "confirm") {
-        authMode = "in"; renderAuth(`${email}로 인증 메일을 보냈습니다. 메일의 링크를 누른 뒤 여기서 로그인해 주세요. 입력하신 추천 결과는 그대로 남아 있습니다.`);
+        authMode = "in"; renderAuth(`${email}로 인증 메일을 보냈습니다. 메일의 링크를 누른 뒤 여기서 로그인해 주세요. 메일이 오지 않으면 이미 가입된 이메일일 수 있으니 ‘비밀번호를 잊으셨나요?’로 비밀번호를 다시 정해 주세요.`);
         $("#aEmail").value = email; return;
       }
       toast("가입했습니다. 환영합니다!");
@@ -757,7 +793,10 @@ $("#myBody").addEventListener("click", async (e) => {
 renderPrograms();
 refreshNav();
 Auth.load().then(refreshNav, () => {});
-sb?.auth.onAuthStateChange((ev) => { if (ev === "SIGNED_IN" || ev === "SIGNED_OUT") Auth.load().then(refreshNav, () => {}); });
+sb?.auth.onAuthStateChange((ev) => {
+  if (ev === "PASSWORD_RECOVERY") { openAuth("newpw"); return; }
+  if (ev === "SIGNED_IN" || ev === "SIGNED_OUT") Auth.load().then(refreshNav, () => {});
+});
 track("visit", document.referrer ? new URL(document.referrer).hostname : "direct");
 if (new URLSearchParams(location.search).get("ref") && referral) { track("ref", referral); toast("소개 링크로 오셨네요. 의뢰하시면 대행비 10% 할인이 적용됩니다."); }
 
