@@ -21,6 +21,6 @@ export const asUser = (e, token, path, init = {}) => fetch(`${e.url}${path}`, {
 export const bearer = (request) => /^Bearer\s+(.+)$/i.exec(request.headers.get("authorization") || "")?.[1]?.trim();
 
 export async function isAdmin(e, token) {
-  const r = await asUser(e, token, "/rest/v1/rpc/is_admin", { method: "POST", body: "{}" });
+  const r = await asUser(e, token, "/rest/v1/rpc/ongi_is_admin", { method: "POST", body: "{}" });
   return r.ok && (await r.json()) === true;
 }

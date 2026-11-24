@@ -19,7 +19,7 @@ node dev-server.mjs
 
 ## 키와 보안
 - `.env.local`(깃에 올리지 않음): `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SECRET_KEY`, `GEMINI_API_KEY`. 비밀 키와 Gemini 키는 `api/`에서만 읽습니다.
-- Supabase는 CJSJ와 같은 프로젝트를 씁니다. 테이블은 모두 `ongi_`로 시작하고, 관리자 판정은 CJSJ의 `public.is_admin()`(profiles.role = admin)을 그대로 씁니다. 로그인 계정(auth.users)은 두 서비스가 함께 씁니다.
+- Supabase는 이 사이트 전용 프로젝트를 씁니다(CJSJ와 분리). 관리자는 `ongi_admins` 테이블에 계정 ID로 등록하고 `ongi_is_admin()`으로 판정합니다. 관리자를 더하려면 SQL Editor에서 `insert into ongi_admins (user_id) select id from auth.users where email = '…';`
 - 연락처는 `ongi_requests`에만 있고 본인과 관리자만 읽습니다. AI 요약에는 집계 숫자만 보냅니다.
 
 ## 배포

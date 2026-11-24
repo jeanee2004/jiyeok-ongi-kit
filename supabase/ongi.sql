@@ -1,7 +1,25 @@
--- 지역 온기: Supabase 스키마 (SQL Editor에 통째로 붙여 넣고 Run 한 번. 여러 번 실행해도 안전)
--- CJSJ와 같은 프로젝트를 쓰므로 모든 테이블은 ongi_ 로 시작합니다.
--- 관리자 판정은 CJSJ가 만든 public.is_admin() 을 그대로 씁니다(profiles.role = 'admin').
+-- 지역 온기: Supabase 스키마 (이 사이트 전용 프로젝트의 SQL Editor에 통째로 붙여 넣고 Run 한 번. 여러 번 실행해도 안전)
+-- CJSJ와 다른 프로젝트를 씁니다. 다른 서비스의 테이블·함수에 기대지 않습니다.
 -- 원칙: 연락처는 ongi_requests 에만 있고, 본인과 관리자만 읽습니다. 추천 응답·행동 기록에는 개인정보를 넣지 않습니다.
+
+-- 0) 관리자 ------------------------------------------------------------------
+-- 관리자는 이메일이 아니라 계정 ID로 등록합니다(같은 이메일로 누가 먼저 가입해도 관리자가 되지 않게).
+create table if not exists public.ongi_admins (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+alter table public.ongi_admins enable row level security; -- 정책 없음: 화면에서는 읽기·쓰기 불가
+
+create or replace function public.ongi_is_admin() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.ongi_admins where user_id = auth.uid())
+$$;
+grant execute on function public.ongi_is_admin() to anon, authenticated;
+
+-- 대표 계정을 관리자로 등록 (먼저 사이트에서 이 이메일로 가입한 뒤 이 SQL을 실행하세요)
+insert into public.ongi_admins (user_id)
+select id from auth.users where lower(email) = 'jeaneeyi2004@gmail.com'
+on conflict do nothing;
 
 -- 1) 기업 담당자 계정 정보 ----------------------------------------------------
 create table if not exists public.ongi_accounts (
@@ -13,7 +31,7 @@ create table if not exists public.ongi_accounts (
 alter table public.ongi_accounts enable row level security;
 drop policy if exists "ongi_accounts: own" on public.ongi_accounts;
 create policy "ongi_accounts: own" on public.ongi_accounts for all to authenticated
-  using (id = auth.uid() or public.is_admin()) with check (id = auth.uid());
+  using (id = auth.uid() or public.ongi_is_admin()) with check (id = auth.uid());
 
 -- 2) 맞춤 추천 결과 (응답은 구간·선택지라 개인정보 없음) --------------------------
 create table if not exists public.ongi_plans (
@@ -33,7 +51,7 @@ create policy "ongi_plans: insert" on public.ongi_plans for insert to anon, auth
   with check (owner is null or owner = auth.uid());
 drop policy if exists "ongi_plans: read" on public.ongi_plans;
 create policy "ongi_plans: read" on public.ongi_plans for select to authenticated
-  using (owner = auth.uid() or public.is_admin());
+  using (owner = auth.uid() or public.ongi_is_admin());
 drop policy if exists "ongi_plans: delete own" on public.ongi_plans;
 create policy "ongi_plans: delete own" on public.ongi_plans for delete to authenticated using (owner = auth.uid());
 
@@ -62,10 +80,10 @@ create policy "ongi_requests: insert own" on public.ongi_requests for insert to 
   with check (owner = auth.uid() and status = 'new' and admin_note is null);
 drop policy if exists "ongi_requests: read" on public.ongi_requests;
 create policy "ongi_requests: read" on public.ongi_requests for select to authenticated
-  using (owner = auth.uid() or public.is_admin());
+  using (owner = auth.uid() or public.ongi_is_admin());
 drop policy if exists "ongi_requests: admin update" on public.ongi_requests;
 create policy "ongi_requests: admin update" on public.ongi_requests for update to authenticated
-  using (public.is_admin()) with check (public.is_admin());
+  using (public.ongi_is_admin()) with check (public.ongi_is_admin());
 drop policy if exists "ongi_requests: delete own" on public.ongi_requests;
 create policy "ongi_requests: delete own" on public.ongi_requests for delete to authenticated using (owner = auth.uid());
 
@@ -98,4 +116,4 @@ alter table public.ongi_events enable row level security;
 drop policy if exists "ongi_events: insert" on public.ongi_events;
 create policy "ongi_events: insert" on public.ongi_events for insert to anon, authenticated with check (true);
 drop policy if exists "ongi_events: admin read" on public.ongi_events;
-create policy "ongi_events: admin read" on public.ongi_events for select to authenticated using (public.is_admin());
+create policy "ongi_events: admin read" on public.ongi_events for select to authenticated using (public.ongi_is_admin());

@@ -47,7 +47,7 @@ const Auth = {
     const u = session.user;
     const [{ data: acc }, { data: admin }] = await Promise.all([
       sb.from("ongi_accounts").select("company, name").eq("id", u.id).maybeSingle(),
-      sb.rpc("is_admin"),
+      sb.rpc("ongi_is_admin"),
     ]);
     const meta = u.user_metadata || {};
     if (!acc && meta.company) await sb.from("ongi_accounts").upsert({ id: u.id, company: meta.company, name: meta.name || "" });

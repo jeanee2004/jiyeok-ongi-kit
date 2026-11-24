@@ -1,5 +1,5 @@
 /* 지역 온기 — 관리자 대시보드.
-   권한은 DB가 지킵니다: ongi_requests·ongi_events는 public.is_admin() 인 계정만 전체를 읽을 수 있습니다. */
+   권한은 DB가 지킵니다: ongi_requests·ongi_events는 public.ongi_is_admin() 인 계정(ongi_admins에 등록된 계정)만 전체를 읽을 수 있습니다. */
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -43,7 +43,7 @@ function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = fal
 async function gate() {
   const { data: { session } } = await sb.auth.getSession();
   if (!session) return showGate("관리자 계정으로 로그인해 주세요.");
-  const { data: ok } = await sb.rpc("is_admin");
+  const { data: ok } = await sb.rpc("ongi_is_admin");
   if (ok !== true) return showGate("이 계정은 관리자 권한이 없습니다. 관리자 계정으로 다시 로그인해 주세요.", true);
   $("#gate").hidden = true; $("#dash").hidden = false; $("#admAct").hidden = false;
   load();
