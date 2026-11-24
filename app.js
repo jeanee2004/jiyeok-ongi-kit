@@ -114,10 +114,25 @@ function refreshNav() {
 
 /* ---------- 랜딩: 프로그램 카드 ---------- */
 let fieldFilter = "all";
-function costForHeads(p, heads, fee = false) {
+const PLACE = { indoor: "실내", outdoor: "야외", remote: "비대면·회사에서" };
+// o: 맞춤 추천 응답(식대·교통·보험·대상자 간식·대행비 포함 여부). 비우면 재료와 소모품만 계산합니다.
+function costForHeads(p, heads, o = {}) {
   const groups = Math.max(1, Math.ceil(heads / p.heads[1]));
-  const fixed = p.cost.fixed * groups, perHead = p.cost.perHead * heads, vehicle = p.cost.vehicle * groups;
-  return { groups, fixed, perHead, vehicle, fee: fee ? SERVICE_FEE : 0, total: fixed + perHead + vehicle + (fee ? SERVICE_FEE : 0) };
+  const ben = Math.round(heads * p.ben);
+  const remote = p.place === "remote";
+  const c = {
+    groups, ben,
+    fixed: p.cost.fixed * groups,
+    perHead: p.cost.perHead * heads,
+    vehicle: p.cost.vehicle * groups,
+    meal: o.meal === "company" && !remote ? CARE.meal * heads : 0,
+    transport: remote ? 0 : o.transport === "bus" ? CARE.bus * groups : o.transport === "fare" ? CARE.fare * heads : 0,
+    insurance: o.insurance === "us" && !remote ? CARE.insurance * heads : 0,
+    snack: o.benSnack === "yes" && !remote ? CARE.snack * ben : 0,
+    fee: o.includeFee ? Math.round(SERVICE_FEE * (1 - DISCOUNT.rate)) : 0,
+  };
+  c.total = c.fixed + c.perHead + c.vehicle + c.meal + c.transport + c.insurance + c.snack + c.fee;
+  return c;
 }
 function renderPrograms() {
   $("#fieldChips").innerHTML = [{ id: "all", label: "전체" }, ...FIELDS].map((f) =>
@@ -134,7 +149,7 @@ function renderPrograms() {
       <p>${esc(p.summary)}</p>
       <div class="meta">
         <span class="badge">${byId(FIELDS, p.field).label}</span>
-        <span class="badge">${p.place === "indoor" ? "실내" : "야외"} · ${p.hours}시간</span>
+        <span class="badge">${PLACE[p.place]} · ${p.hours}시간</span>
         <span class="badge warm">2회차 이어짐 ${"●".repeat(p.repeat)}</span>
       </div>
       <p class="cost">임직원 ${heads}명 기준 1회 약 <b>${man(c.total)}</b> <span class="note">(추정)</span></p>
@@ -158,6 +173,7 @@ window.addEventListener("scroll", () => $(".nav").classList.toggle("scrolled", s
 const DEFAULT_PLAN = {
   region: "", industry: "", employees: "", participants: 12,
   budgetPreset: "", budget: 1000000, includeFee: true, times: "", strategy: "balance", payType: "",
+  perHeadPreset: "", meal: "", transport: "", insurance: "", benSnack: "",
   images: [], purpose: "", tone: "2", esg: "",
   time: "", place: "", skills: [], join: "",
   fields: [], pain: "", history: "",
@@ -189,10 +205,20 @@ const STEPS = [
       ${q("1회 활동 예산 범위", "", radio("budgetPreset", BUDGET_PRESETS), "budgetPreset")}
       ${q("정확한 금액", "추천은 이 금액을 기준으로 예산 안에 드는지 계산합니다.", `<div class="range-box"><output id="budgetOut">${man(plan.budget)}</output>
         <input type="range" name="budget" min="100000" max="10000000" step="50000" value="${plan.budget}" aria-label="1회 예산">
-        <label class="check" style="margin-top:12px"><input type="checkbox" name="includeFee" ${plan.includeFee ? "checked" : ""}><span>기획·운영 대행비(시범가 30만 원)도 이 예산 안에 포함해서 계산</span></label></div>`, "budget")}
+        <label class="check" style="margin-top:12px"><input type="checkbox" name="includeFee" ${plan.includeFee ? "checked" : ""}><span>기획·운영 대행비(시범가 30만 원, 추천 할인 10% 적용)도 이 예산 안에 포함해서 계산</span></label></div>`, "budget")}
       ${q("1년에 몇 번 할 계획인가요?", "한 번으로 끝나지 않게 2회차 계획까지 함께 드립니다.", radio("times", [{ id: "1", label: "올해 1회 시범" }, { id: "2", label: "반기 1회 (연 2회)" }, { id: "4", label: "분기 1회 (연 4회)" }, { id: "12", label: "매달 (연 12회)" }]), "times")}
       ${q("예산을 쓰는 방향", "", radio("strategy", [{ id: "save", label: "최대한 아끼기", hint: "1인당 비용이 낮은 안 우선" }, { id: "balance", label: "균형 있게", hint: "비용과 체감을 함께" }, { id: "impact", label: "체감 효과 우선", hint: "기관이 크게 느끼는 안" }], { col: true }), "strategy")}
       ${q("비용 처리 방식", "", radio("payType", ["회사 운영비(복리후생·행사비)", "기부금(영수증 필요)", "아직 모름"]), "payType")}
+    </div>`,
+  },
+  {
+    label: "봉사자·대상자 챙기기", keys: ["perHeadPreset", "meal", "transport", "insurance", "benSnack"],
+    render: () => `<div class="step"><h2>봉사자와 대상자를 어떻게 챙길까요?</h2><p class="sub">고르신 항목은 예상 비용에 따로 나눠 넣습니다. 금액은 모두 추정치입니다.</p>
+      ${q("임직원 1인당 예산 상한", "전체 예산과 함께, 1인당 비용이 이 금액을 넘지 않는 안을 먼저 추천합니다.", radio("perHeadPreset", PER_HEAD_PRESETS), "perHeadPreset")}
+      ${q("임직원 식사", "", radio("meal", [{ id: "company", label: "회사가 식대 지원", hint: `1인 약 ${won(CARE.meal)}` }, { id: "self", label: "각자 해결·식사 없는 시간대" }], { col: true }), "meal")}
+      ${q("임직원 이동", "", radio("transport", [{ id: "bus", label: "단체 차량 대절", hint: `조당 약 ${man(CARE.bus)}` }, { id: "fare", label: "교통비 지원", hint: `1인 약 ${won(CARE.fare)}` }, { id: "self", label: "각자 이동·회사 차량 있음" }], { col: true }), "transport")}
+      ${q("봉사자 상해보험", "봉사 중 다치는 경우를 대비합니다.", radio("insurance", [{ id: "us", label: "지역 온기가 가입 대행", hint: `1인 1일 약 ${won(CARE.insurance)}` }, { id: "company", label: "회사 단체보험으로 처리" }], { col: true }), "insurance")}
+      ${q("봉사 대상자 간식·음료", "아동·어르신 등 함께하는 분들께 드릴 간식입니다. 기관이 원하지 않으면 빼고 진행합니다.", radio("benSnack", [{ id: "yes", label: "준비할게요", hint: `1명 약 ${won(CARE.snack)}` }, { id: "no", label: "준비하지 않음" }], { col: true }), "benSnack")}
     </div>`,
   },
   {
@@ -255,6 +281,7 @@ const REQUIRED_MSG = {
   budgetPreset: "예산 범위를 골라 주세요.", times: "횟수를 골라 주세요.", payType: "비용 처리 방식을 골라 주세요.",
   images: "하나 이상 골라 주세요.", purpose: "목적을 골라 주세요.", esg: "보고 수준을 골라 주세요.",
   time: "가능한 시간을 골라 주세요.", place: "장소를 골라 주세요.", skills: "하나 이상 골라 주세요. 없으면 ‘특별히 없음’을 골라 주세요.", join: "참여 방식을 골라 주세요.",
+  perHeadPreset: "1인당 예산을 골라 주세요. 정하지 않았다면 ‘따로 정하지 않음’을 골라 주세요.", meal: "식사 방식을 골라 주세요.", transport: "이동 방식을 골라 주세요.", insurance: "보험 처리 방식을 골라 주세요.", benSnack: "하나 골라 주세요.",
   fields: "하나 이상 골라 주세요.", pain: "하나 골라 주세요.", history: "하나 골라 주세요.",
 };
 function validateStep() {
@@ -317,7 +344,7 @@ function recommend(s) {
   const quietness = (6 - Number(s.tone)) / 5; // 1 = 조용히 꾸준히
 
   const rows = PROGRAMS.map((p) => {
-    const cost = costForHeads(p, heads, s.includeFee);
+    const cost = costForHeads(p, heads, s);
     const why = [], warn = [];
 
     // 이미지
@@ -346,6 +373,7 @@ function recommend(s) {
     let logistics = 1;
     if (s.place === "indoor" && p.place === "outdoor") { logistics -= .6; warn.push("야외 활동이라 날씨 대안이 필요합니다"); }
     if (p.hours > 4 && /반나절/.test(s.time)) { logistics -= .4; warn.push(`${p.hours}시간 활동이라 반나절보다 깁니다`); }
+    if (p.place === "remote" && /팀|전사/.test(s.join)) { logistics -= .5; warn.push("각자 하는 비대면 활동이라 팀이 함께 모이는 경험은 적습니다"); }
     if (heads < p.heads[0]) { logistics -= .3; warn.push(`최소 ${p.heads[0]}명이 필요해 인원을 조금 늘리는 것이 좋습니다`); }
     if (cost.groups > 1) why.push(`인원이 많아 ${cost.groups}개 조(기관)로 나눠 진행합니다`);
     logistics = Math.max(0, logistics);
@@ -355,9 +383,14 @@ function recommend(s) {
 
     // 예산
     const ratio = cost.total / budget;
-    const budgetFit = ratio <= .85 ? 1 : ratio <= 1 ? .85 : ratio <= 1.15 ? .35 : 0;
-    if (ratio <= 1) why.push(`예산의 ${Math.round(ratio * 100)}%로 진행할 수 있습니다`);
-    else warn.push(`예산보다 ${man(cost.total - budget)} 많습니다`);
+    const headCap = byId(PER_HEAD_PRESETS, s.perHeadPreset)?.max ?? Infinity;
+    const perHeadCost = (cost.total - cost.fee) / heads;
+    let budgetFit = ratio <= .85 ? 1 : ratio <= 1 ? .85 : ratio <= 1.15 ? .35 : 0;
+    if (perHeadCost > headCap) { budgetFit *= .4; warn.push(`1인당 약 ${won(perHeadCost)}로 1인당 예산을 넘습니다`); }
+    else if (headCap < Infinity) why.push(`1인당 약 ${won(perHeadCost)}로 1인당 예산 안입니다`);
+    if (ratio <= 1) why.push(`전체 예산의 ${Math.round(ratio * 100)}%로 진행할 수 있습니다`);
+    else warn.push(`전체 예산보다 ${man(cost.total - budget)} 많습니다`);
+    if (p.place === "remote") why.push("이동이 없어 식대·교통비가 들지 않습니다");
 
     // 가성비: 기관 체감·지속성 대비 1인당 비용
     const quality = (p.impact * .6 + p.repeat * .4) / 5;
@@ -377,12 +410,14 @@ function recommend(s) {
     r.valueN = r.value / maxValue;
     r.score = W.image * r.image + W.purpose * r.purpose + W.field * r.field + W.skill * r.skill + W.value * r.valueN
       + W.budget * r.budgetFit + W.logistics * r.logistics + W.tone * r.toneFit + (W.quality || 0) * r.quality;
+    if (r.p.place === "remote" && /팀|전사/.test(s.join)) r.score *= .75; // 함께 모이길 원하면 비대면은 뒤로
     if (r.valueN > .7) r.why.push("1인당 비용 대비 기관 체감이 큰 편입니다");
     if (r.p.repeat >= 5) r.why.push("같은 사람들이 다시 만나는 2회차로 잇기 쉽습니다");
     // 예산을 넘으면 예산에 맞는 인원을 함께 제안
     if (r.ratio > 1) {
-      const room = budget - (s.includeFee ? SERVICE_FEE : 0) - r.p.cost.fixed - r.p.cost.vehicle;
-      const fit = Math.floor(room / r.p.cost.perHead);
+      const c1 = costForHeads(r.p, 1, s); // 1명일 때 비용에서 1인당 늘어나는 몫을 구합니다
+      const unit = c1.perHead + c1.meal + c1.insurance + c1.snack + (s.transport === "fare" ? c1.transport : 0) || 1;
+      const fit = Math.floor((budget - (c1.total - unit)) / unit);
       r.shrink = fit >= r.p.heads[0] ? Math.min(fit, r.p.heads[1]) : 0;
     }
   });
@@ -390,11 +425,18 @@ function recommend(s) {
   let pool = rows.filter((r) => r.ratio <= 1.15 && r.field > 0);
   if (pool.length < 3) pool = rows.filter((r) => r.ratio <= 1.15);
   if (pool.length < 3) pool = rows;
-  const top = pool.sort((a, b) => b.score - a.score).slice(0, 3);
+  const top = pool.sort((a, b) => b.score - a.score).slice(0, 6);
   const best = top[0]?.score || 1;
-  top.forEach((r) => { r.match = Math.round(Math.min(98, 62 + (r.score / best) * 34 - (top.indexOf(r) * 3))); });
-  return { at: new Date().toISOString(), input: { ...s }, top: top.map(slim) };
+  top.forEach((r, i) => { r.match = Math.round(Math.min(98, 58 + (r.score / best) * 38 - i * 2)); });
+  return { at: new Date().toISOString(), input: { ...s }, top: top.map(slim), code: couponCode() };
 }
+// 할인 코드: 맞춤 추천마다 하나 발급하고, 의뢰에 함께 저장해 관리자가 확인합니다.
+function couponCode() {
+  const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return `ONGI-${Array.from({ length: 6 }, () => abc[Math.floor(Math.random() * abc.length)]).join("")}`;
+}
+const referral = (() => { const r = new URLSearchParams(location.search).get("ref"); return /^ONGI-[A-Z0-9]{6}$/.test(r || "") ? r : DB.get("ref", null); })();
+if (referral) DB.set("ref", referral);
 // 저장용으로 필요한 값만 남깁니다.
 const slim = (r) => ({ id: r.p.id, match: r.match, cost: r.cost, ratio: r.ratio, perHead: r.perHead, why: r.why.slice(0, 4), warn: r.warn.slice(0, 2), shrink: r.shrink || 0 });
 
@@ -420,19 +462,23 @@ function showResult(res, { saved = false } = {}) {
     const p = byId(PROGRAMS, r.id), c = r.cost;
     const pct = Math.min(100, r.ratio * 100);
     const cls = r.ratio > 1 ? "over" : r.ratio > .9 ? "tight" : "";
-    return `<article class="rec ${i === 0 ? "top" : ""}">
+    return `<article class="rec ${i === 0 ? "top" : ""}" ${i >= 3 ? "data-more hidden" : ""}>
       <div class="rec-head">
-        <div><span class="rank">No.${i + 1}${i === 0 ? " · 가장 잘 맞는 안" : ""}</span><h3>${esc(p.name)}</h3><p class="note">${esc(p.org)} · ${p.place === "indoor" ? "실내" : "야외"} · ${p.hours}시간 · ${c.groups > 1 ? `${c.groups}개 조` : "1개 조"}</p></div>
+        <div><span class="rank">No.${i + 1}${i === 0 ? " · 가장 잘 맞는 안" : ""}</span><h3>${esc(p.name)}</h3><p class="note">${esc(p.org)} · ${PLACE[p.place]} · ${p.hours}시간 · ${c.groups > 1 ? `${c.groups}개 조` : "1개 조"}${c.ben ? ` · ${esc(p.benLabel)} 약 ${c.ben}명` : ""}</p></div>
         <div class="score"><b>${r.match}%</b><span>조건 일치도</span></div>
       </div>
       ${i === 0 ? `<img class="ph" src="${photo(p.id, 1000)}" alt="${esc(PHOTOS[p.id][1])} (예시 사진)" loading="lazy">` : ""}
       <p class="detail">${esc(p.summary)}</p>
       <ul class="why">${r.why.map((w) => `<li>${esc(w)}</li>`).join("")}${r.warn.map((w) => `<li class="warn">${esc(w)}</li>`).join("")}</ul>
       <div class="costbox">
-        <div class="costrow"><span>기관 지원 물품·재료 (${esc(p.costNote.split(",")[0])})</span><b>${won(c.fixed)}</b></div>
-        <div class="costrow"><span>임직원 ${s.participants}명 × ${won(p.cost.perHead)} (식비·보험·소모품)</span><b>${won(c.perHead)}</b></div>
-        ${c.vehicle ? `<div class="costrow"><span>차량·운반</span><b>${won(c.vehicle)}</b></div>` : ""}
-        ${c.fee ? `<div class="costrow"><span>기획·운영 대행 (시범가)</span><b>${won(c.fee)}</b></div>` : ""}
+        <div class="costrow"><span>기관 지원 물품·재료 (${esc(p.costNote)})</span><b>${won(c.fixed)}</b></div>
+        ${c.perHead ? `<div class="costrow"><span>임직원 소모품 ${s.participants}명분</span><b>${won(c.perHead)}</b></div>` : ""}
+        ${c.meal ? `<div class="costrow"><span>임직원 식대 ${s.participants}명</span><b>${won(c.meal)}</b></div>` : ""}
+        ${c.transport ? `<div class="costrow"><span>${s.transport === "bus" ? `단체 차량 ${c.groups}대` : `교통비 ${s.participants}명`}</span><b>${won(c.transport)}</b></div>` : ""}
+        ${c.insurance ? `<div class="costrow"><span>봉사자 상해보험 ${s.participants}명</span><b>${won(c.insurance)}</b></div>` : ""}
+        ${c.snack ? `<div class="costrow"><span>${esc(p.benLabel)} 간식·음료 약 ${c.ben}명</span><b>${won(c.snack)}</b></div>` : ""}
+        ${c.vehicle ? `<div class="costrow"><span>대상자 이동·물품 운반 차량</span><b>${won(c.vehicle)}</b></div>` : ""}
+        ${c.fee ? `<div class="costrow"><span>기획·운영 대행 (30만 원에서 추천 할인 10%)</span><b>${won(c.fee)}</b></div>` : ""}
         <div class="costrow total"><span>1회 예상 비용 · 1인당 ${won(r.perHead)}</span><b>${won(c.total)}</b></div>
         <div class="bar" role="img" aria-label="예산 사용률 ${Math.round(r.ratio * 100)}%"><span class="${cls}" style="width:${pct}%"></span></div>
         <div class="bar-cap"><span>예산 ${man(s.budget)} 중 ${Math.round(r.ratio * 100)}% 사용</span><span>${times > 1 ? `연 ${times}회면 약 ${man(c.total * times)}` : "올해 1회 시범"}</span></div>
@@ -445,7 +491,7 @@ function showResult(res, { saved = false } = {}) {
   }).join("");
 
   const compare = `<div class="table-scroll"><table class="compare"><thead><tr><th>추천안</th><th class="n">1회 예상</th><th class="n">1인당</th><th class="n">예산 사용</th><th class="n">연간</th></tr></thead><tbody>
-    ${res.top.map((r) => `<tr><td>${esc(byId(PROGRAMS, r.id).name)}</td><td class="n">${man(r.cost.total)}</td><td class="n">${won(r.perHead)}</td><td class="n">${Math.round(r.ratio * 100)}%</td><td class="n">${man(r.cost.total * times)}</td></tr>`).join("")}
+    ${res.top.map((r, i) => `<tr><td>${i + 1}. ${esc(byId(PROGRAMS, r.id).name)}</td><td class="n">${man(r.cost.total)}</td><td class="n">${won(r.perHead)}</td><td class="n">${Math.round(r.ratio * 100)}%</td><td class="n">${man(r.cost.total * times)}</td></tr>`).join("")}
   </tbody></table></div>`;
 
   const payNote = s.payType.startsWith("기부금")
@@ -453,14 +499,25 @@ function showResult(res, { saved = false } = {}) {
     : "";
 
   $("#result").innerHTML = `
-    <div class="res-head"><div><p class="kicker">맞춤 추천 결과</p><h2>조건에 맞는 봉사 프로그램 3가지</h2></div>
+    <div class="res-head"><div><p class="kicker">맞춤 추천 결과</p><h2>조건에 맞는 봉사 프로그램 ${res.top.length}가지</h2></div>
       <button class="pill ghost sm" type="button" id="againBtn">조건 바꿔 다시 받기</button></div>
     <div class="profile">${profileChips(s)}</div>
+    ${res.code ? `<div class="coupon">
+      <code>${esc(res.code)}</code>
+      <div class="rec-act"><button class="pill ghost sm" type="button" id="copyCode">코드 복사</button><button class="pill ghost sm" type="button" id="shareRef">소개 링크 복사</button></div>
+      <p>맞춤 추천 혜택 · 이 결과로 의뢰하면 기획·운영 대행비 ${DISCOUNT.rate * 100}% 할인 (발급 후 ${DISCOUNT.days}일 안). 의뢰 신청서에 자동으로 들어갑니다. 소개 링크로 들어온 다른 회사 담당자도 같은 혜택을 받습니다.</p>
+    </div>` : ""}
     ${compare}
     ${recs}
+    ${res.top.length > 3 ? `<button class="pill ghost more" type="button" id="moreBtn">추천 ${res.top.length - 3}개 더 보기</button>` : ""}
     <p class="disclaimer">예상 비용은 비슷한 지역 활동을 기준으로 잡은 기획용 추정치이며, 실제 금액은 기관 방문 뒤 ‘기관 수요 한 장’과 함께 다시 안내해 드립니다. 기관 정보는 예시이고, 실제 프로그램은 기관 담당자에게 직접 들은 필요로 만듭니다. ${payNote}</p>
     ${me ? `<p class="note" style="margin-top:10px">이 결과는 ‘내 의뢰’의 저장한 추천에 남았습니다.</p>` : `<p class="note" style="margin-top:10px">로그인하면 이 결과가 저장되고, 의뢰 진행 상황도 확인할 수 있습니다.</p>`}`;
   $("#againBtn").onclick = () => { step = 0; renderStep(); };
+  const more = $("#moreBtn");
+  if (more) more.onclick = () => { $$("[data-more]").forEach((el) => { el.hidden = false; }); more.remove(); };
+  const copy = (text, msg) => (navigator.clipboard?.writeText(text) || Promise.reject()).then(() => toast(msg), () => window.prompt("아래 내용을 복사해 주세요.", text));
+  $("#copyCode")?.addEventListener("click", () => copy(res.code, "할인 코드를 복사했습니다."));
+  $("#shareRef")?.addEventListener("click", () => copy(`지역 온기에서 우리 회사에 맞는 임직원 봉사를 추천받아 보세요. 이 링크로 들어오면 대행비 할인 혜택이 있습니다. ${location.origin}${location.pathname}?ref=${res.code}`, "소개 링크를 복사했습니다. 다른 회사 담당자에게 보내 주세요."));
   $("#planner .sheet").scrollTop = 0;
 }
 
@@ -538,6 +595,7 @@ function openRequest() {
   $("#reqSummary").innerHTML = `<div class="costbox" style="margin:18px 0 22px">
       <div class="costrow"><span>선택한 추천안</span><b>${esc(p.name)}</b></div>
       ${rec ? `<div class="costrow"><span>참여 ${lastResult.input.participants}명 · 1회 예상</span><b>${won(rec.cost.total)}</b></div>` : ""}
+      ${lastResult?.code || referral ? `<div class="costrow"><span>적용할 할인 코드 (대행비 ${DISCOUNT.rate * 100}%)</span><b>${esc(lastResult?.code || referral)}</b></div>` : ""}
     </div>`;
   const months = Array.from({ length: 6 }, (_, i) => { const d = new Date(); d.setMonth(d.getMonth() + i + 1, 1); return `${d.getFullYear()}년 ${d.getMonth() + 1}월`; });
   $("#reqForm").innerHTML = `
@@ -597,13 +655,14 @@ $("#reqForm").addEventListener("submit", (e) => {
     program: pendingProgram, estimate: rec ? rec.cost.total : null,
     contact: { company: f.company.trim(), bizNo: f.bizNo?.trim() || "", name: f.name.trim(), dept: f.dept.trim(), phone: f.phone.trim(), email: f.email.trim(), addr: f.addr.trim(), contactBy: f.contactBy, contactTime: f.contactTime },
     when: f.when, memo: f.memo?.trim() || "", plan: lastResult?.input || null, consentAt: new Date().toISOString(),
+    code: lastResult?.code || "", ref: referral || "",
   };
   const all = DB.requests(); all.unshift(req);
   if (!DB.set("requests", all)) { err.textContent = "저장하지 못했습니다. 시크릿 창이 아닌지 확인해 주세요."; return; }
   if (f.company.trim() !== me.company) Auth.update({ company: f.company.trim() });
   pendingProgram = null;
   closeOverlay("request"); closeOverlay("planner");
-  toast(`의뢰를 접수했습니다 (${req.id}). 영업일 2일 안에 연락드리겠습니다.`);
+  toast(`의뢰를 접수했습니다 (${req.id}). 확인하는 대로 연락드리겠습니다.`);
   openMyPage();
 });
 
@@ -624,6 +683,7 @@ function reqCard(r, admin) {
       <dt>연락 선호</dt><dd>${esc(c.contactBy)} · ${esc(c.contactTime)}</dd>` : `<dt>연락 받을 곳</dt><dd>${esc(c.contactBy)} · ${esc(c.contactBy === "이메일" ? c.email : c.phone)}</dd>`}
       <dt>희망 시기</dt><dd>${esc(r.when)}${r.plan ? ` · ${r.plan.participants}명 · 예산 ${man(r.plan.budget)}` : ""}</dd>
       ${r.estimate ? `<dt>예상 비용</dt><dd>${won(r.estimate)} (추정)</dd>` : ""}
+      ${r.code || r.ref ? `<dt>할인 코드</dt><dd>${esc(r.code || "")}${r.ref ? ` · 소개 ${esc(r.ref)}` : ""}</dd>` : ""}
       ${r.plan ? `<dt>기업 방향</dt><dd>${esc(r.plan.images.map((id) => byId(IMAGES, id).label).join(", "))} · ${esc(byId(PURPOSES, r.plan.purpose)?.label || "")}</dd>` : ""}
       ${r.memo ? `<dt>요청 사항</dt><dd>${esc(r.memo)}</dd>` : ""}
     </dl>
@@ -691,8 +751,8 @@ $("#myBody").addEventListener("change", (e) => {
 });
 
 function exportCsv() {
-  const head = ["접수번호", "접수일", "상태", "회사명", "사업자등록번호", "소재지", "담당자", "부서직함", "연락처", "이메일", "연락방법", "연락시간", "희망시기", "프로그램", "예상비용", "참여인원", "1회예산", "요청사항"];
-  const rows = DB.requests().map((r) => [r.id, fmtDate(r.createdAt), STATUS[r.status], r.contact.company, r.contact.bizNo, r.contact.addr, r.contact.name, r.contact.dept, r.contact.phone, r.contact.email, r.contact.contactBy, r.contact.contactTime, r.when, byId(PROGRAMS, r.program)?.name || "", r.estimate || "", r.plan?.participants || "", r.plan?.budget || "", r.memo]);
+  const head = ["접수번호", "접수일", "상태", "회사명", "사업자등록번호", "소재지", "담당자", "부서직함", "연락처", "이메일", "연락방법", "연락시간", "희망시기", "프로그램", "예상비용", "참여인원", "1회예산", "할인코드", "소개코드", "요청사항"];
+  const rows = DB.requests().map((r) => [r.id, fmtDate(r.createdAt), STATUS[r.status], r.contact.company, r.contact.bizNo, r.contact.addr, r.contact.name, r.contact.dept, r.contact.phone, r.contact.email, r.contact.contactBy, r.contact.contactTime, r.when, byId(PROGRAMS, r.program)?.name || "", r.estimate || "", r.plan?.participants || "", r.plan?.budget || "", r.code || "", r.ref || "", r.memo]);
   const csv = "﻿" + [head, ...rows].map((row) => row.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
@@ -703,3 +763,4 @@ function exportCsv() {
 /* ---------- 시작 ---------- */
 renderPrograms();
 refreshNav();
+if (new URLSearchParams(location.search).get("ref") && referral) toast("소개 링크로 오셨네요. 의뢰하시면 대행비 10% 할인이 적용됩니다.");
