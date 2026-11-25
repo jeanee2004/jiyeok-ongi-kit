@@ -11,7 +11,7 @@
 .adm-head .chips { margin: 0; }
 .adm-h2 { font-family: var(--display); font-size: 21px; margin: 40px 0 14px; display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
 .adm-h2 small { font-family: var(--sans); font-size: 13px; font-weight: 400; color: var(--muted); }
-.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
 .kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; }
 .kpi span { font-size: 13px; color: var(--muted); }
 .kpi b { display: block; font-family: var(--display); font-size: 28px; line-height: 1.2; margin-top: 4px; font-variant-numeric: tabular-nums; }

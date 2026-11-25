@@ -1,7 +1,7 @@
 -- ============================================================================
 -- [지역 온기 영역] cjsj 프로젝트를 함께 쓰되, 이 사이트의 것은 모두 ongi_ 로 시작합니다.
---   테이블: ongi_admins · ongi_accounts · ongi_plans · ongi_requests · ongi_events
---   함수:   ongi_is_admin() · ongi_cancel_request() · ongi_touch()
+--   테이블: ongi_admins · ongi_accounts · ongi_plans · ongi_requests · ongi_events · ongi_votes
+--   함수:   ongi_is_admin() · ongi_cancel_request() · ongi_touch() · ongi_vote_plan() · ongi_cast_vote() · ongi_vote_tally()
 -- CJSJ의 테이블(profiles, survey_responses, events, feedback 등)과 함수(is_admin)는 쓰지도 고치지도 않습니다.
 -- SQL Editor에 통째로 붙여 넣고 Run 한 번. 여러 번 실행해도 안전합니다.
 -- 원칙: 연락처는 ongi_requests 에만 있고, 본인과 관리자만 읽습니다. 추천 응답·행동 기록에는 개인정보를 넣지 않습니다.
@@ -111,7 +111,7 @@ create trigger ongi_requests_touch before update on public.ongi_requests for eac
 create table if not exists public.ongi_events (
   id bigint generated always as identity primary key,
   session_id uuid not null,
-  type text not null check (type in ('visit', 'section', 'click', 'step', 'result', 'request', 'code', 'ref')),
+  type text not null,
   name text check (char_length(name) <= 60),
   value numeric,
   created_at timestamptz not null default now()
@@ -122,3 +122,59 @@ drop policy if exists "ongi_events: insert" on public.ongi_events;
 create policy "ongi_events: insert" on public.ongi_events for insert to anon, authenticated with check (true);
 drop policy if exists "ongi_events: admin read" on public.ongi_events;
 create policy "ongi_events: admin read" on public.ongi_events for select to authenticated using (public.ongi_is_admin());
+
+-- 5) 팀 투표 (같은 회사 담당자끼리 추천안에 투표) ---------------------------------
+-- 투표 링크(?vote=추천코드)를 받은 사람은 로그인 없이 투표합니다. 이름 대신 부서·별명만 받습니다.
+-- 테이블은 직접 열지 않고 아래 함수로만 투표·집계합니다(관리자는 읽기 가능).
+create table if not exists public.ongi_votes (
+  id bigint generated always as identity primary key,
+  code text not null,
+  program text not null check (char_length(program) <= 30),
+  voter text not null check (char_length(voter) between 1 and 20),
+  comment text check (char_length(comment) <= 200),
+  session_id uuid not null,
+  created_at timestamptz not null default now(),
+  unique (code, session_id)
+);
+create index if not exists ongi_votes_code_idx on public.ongi_votes (code);
+alter table public.ongi_votes enable row level security;
+drop policy if exists "ongi_votes: admin read" on public.ongi_votes;
+create policy "ongi_votes: admin read" on public.ongi_votes for select to authenticated using (public.ongi_is_admin());
+
+-- 투표 화면에 보여 줄 추천안 (연락처·소유자 없이 추천 목록과 조건만)
+create or replace function public.ongi_vote_plan(p_code text) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object('top', top, 'participants', input -> 'participants', 'budget', input -> 'budget')
+    from public.ongi_plans where code = p_code order by created_at desc limit 1
+$$;
+
+-- 한 브라우저(세션)당 한 표. 다시 투표하면 바뀝니다. 한마디의 전화번호·이메일은 가립니다.
+create or replace function public.ongi_cast_vote(p_code text, p_program text, p_voter text, p_comment text, p_session uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare c text;
+begin
+  if not exists (select 1 from public.ongi_plans where code = p_code and top @> jsonb_build_array(jsonb_build_object('id', p_program))) then
+    raise exception 'invalid vote';
+  end if;
+  c := nullif(left(trim(coalesce(p_comment, '')), 200), '');
+  if c is not null then
+    c := regexp_replace(c, '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', '[이메일]', 'g');
+    c := regexp_replace(c, '0?1[0-9][-. ]?[0-9]{3,4}[-. ]?[0-9]{4}', '[전화번호]', 'g');
+  end if;
+  insert into public.ongi_votes (code, program, voter, comment, session_id)
+  values (p_code, p_program, left(trim(p_voter), 20), c, p_session)
+  on conflict (code, session_id) do update set program = excluded.program, voter = excluded.voter, comment = excluded.comment, created_at = now();
+end $$;
+
+create or replace function public.ongi_vote_tally(p_code text) returns table (program text, votes bigint, comments jsonb)
+language sql stable security definer set search_path = public as $$
+  select v.program, count(*),
+         coalesce(jsonb_agg(jsonb_build_object('voter', v.voter, 'comment', v.comment)) filter (where v.comment is not null), '[]'::jsonb)
+    from public.ongi_votes v where v.code = p_code group by v.program order by count(*) desc
+$$;
+grant execute on function public.ongi_vote_plan(text), public.ongi_cast_vote(text, text, text, text, uuid), public.ongi_vote_tally(text) to anon, authenticated;
+
+-- 행동 기록에 '투표' 종류 추가
+alter table public.ongi_events drop constraint if exists ongi_events_type_check;
+alter table public.ongi_events add constraint ongi_events_type_check
+  check (type in ('visit', 'section', 'click', 'step', 'result', 'request', 'code', 'ref', 'vote'));

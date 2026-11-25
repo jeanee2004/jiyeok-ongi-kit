@@ -355,3 +355,16 @@ input[type="range"] { width: 100%; accent-color: var(--ember); margin-top: 8px; 
 
 .link-btn { appearance: none; border: 0; background: none; color: var(--ink-2); font-size: 13.5px; text-decoration: underline; cursor: pointer; margin-top: 12px; padding: 4px; width: 100%; }
 .link-btn:hover { color: var(--ink); }
+
+/* 팀 투표 */
+.votebox { border: 1px solid var(--line); border-radius: 18px; padding: 16px 20px; margin: 0 0 20px; background: var(--surface); }
+.votebox h3 { font-size: 16px; }
+.votebox .adm-row { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 10px; }
+.votebox .bars { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 7px; }
+.votebox .bars li { display: grid; grid-template-columns: minmax(0, 13em) 1fr auto; gap: 10px; align-items: center; font-size: 13.5px; }
+.votebox .lb { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.votebox .tr { height: 10px; background: var(--surface-2); border-radius: 6px; overflow: hidden; position: relative; }
+.votebox .tr span { position: absolute; inset: 0 auto 0 0; background: var(--ember); border-radius: 6px; }
+.votebox .v { font-weight: 600; font-variant-numeric: tabular-nums; }
+.vote-c { font-size: 13.5px; color: var(--ink-2); margin-top: 6px; }
+#voteBody .votebox { margin-top: 20px; }

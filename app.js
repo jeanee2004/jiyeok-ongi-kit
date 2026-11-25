@@ -518,6 +518,11 @@ function showResult(res, { saved = false } = {}) {
     ${res.code ? `<div class="coupon">
       <code>${esc(res.code)}</code>
       <div class="rec-act"><button class="pill ghost sm" type="button" id="copyCode">코드 복사</button><button class="pill ghost sm" type="button" id="shareRef">소개 링크 복사</button></div>
+    </div>
+    <div class="votebox">
+      <div class="adm-row"><div><h3>팀 투표</h3><p class="note">의견이 갈리면 같은 회사 동료에게 투표 링크를 보내 함께 고르세요. 동료는 로그인 없이 참여합니다.</p></div>
+        <div class="rec-act"><button class="pill sm" type="button" id="shareVote">팀원 투표 링크 복사</button><button class="pill ghost sm" type="button" id="refreshVote">집계 새로고침</button></div></div>
+      <div id="voteTally"><p class="note">아직 투표가 없습니다.</p></div>
       <p>맞춤 추천 혜택 · 이 결과로 의뢰하면 기획·운영 대행비 ${DISCOUNT.rate * 100}% 할인 (발급 후 ${DISCOUNT.days}일 안). 의뢰 신청서에 자동으로 들어갑니다. 소개 링크로 들어온 다른 회사 담당자도 같은 혜택을 받습니다.</p>
     </div>` : ""}
     ${compare}
@@ -530,6 +535,9 @@ function showResult(res, { saved = false } = {}) {
   if (more) more.onclick = () => { $$("[data-more]").forEach((el) => { el.hidden = false; }); more.remove(); };
   const copy = (text, msg) => (navigator.clipboard?.writeText(text) || Promise.reject()).then(() => toast(msg), () => window.prompt("아래 내용을 복사해 주세요.", text));
   $("#copyCode")?.addEventListener("click", () => { track("code", "copy"); copy(res.code, "할인 코드를 복사했습니다."); });
+  $("#shareVote")?.addEventListener("click", () => { track("code", "vote-share"); copy(`[팀 투표] 우리 회사 임직원 봉사, 어떤 프로그램이 좋을지 골라 주세요. 로그인 없이 1분이면 됩니다. ${location.origin}${location.pathname}?vote=${res.code}`, "투표 링크를 복사했습니다. 사내 메신저로 동료들에게 보내 주세요."); });
+  $("#refreshVote")?.addEventListener("click", () => loadTally(res.code, $("#voteTally")));
+  if (res.code) loadTally(res.code, $("#voteTally"));
   $("#shareRef")?.addEventListener("click", () => track("code", "share") || copy(`지역 온기에서 우리 회사에 맞는 임직원 봉사를 추천받아 보세요. 이 링크로 들어오면 대행비 할인 혜택이 있습니다. ${location.origin}${location.pathname}?ref=${res.code}`, "소개 링크를 복사했습니다. 다른 회사 담당자에게 보내 주세요."));
   $("#planner .sheet").scrollTop = 0;
 }
@@ -540,6 +548,51 @@ document.addEventListener("click", (e) => {
   if (!Auth.current()) { openAuth("up", "의뢰를 신청하려면 로그인이 필요합니다. 처음이시면 30초 만에 가입할 수 있습니다."); return; }
   openRequest();
 });
+
+/* ---------- 팀 투표 ---------- */
+async function loadTally(code, box) {
+  if (!sb || !box) return;
+  const { data, error } = await sb.rpc("ongi_vote_tally", { p_code: code });
+  if (error) { box.innerHTML = `<p class="note">집계를 불러오지 못했습니다.</p>`; return; }
+  if (!data.length) { box.innerHTML = `<p class="note">아직 투표가 없습니다. 링크를 보내면 여기에 모입니다.</p>`; return; }
+  const total = data.reduce((n, r) => n + Number(r.votes), 0);
+  box.innerHTML = `<p class="note">총 ${total}표</p><ul class="bars">${data.map((r) => `<li><span class="lb">${esc(byId(PROGRAMS, r.program)?.name || r.program)}</span><span class="tr"><span style="width:${(r.votes / total) * 100}%"></span></span><span class="v">${r.votes}표</span></li>`).join("")}</ul>
+    ${data.flatMap((r) => r.comments.map((c) => `<p class="vote-c"><b>${esc(c.voter)}</b> · ${esc(byId(PROGRAMS, r.program)?.name || "")}: ${esc(c.comment)}</p>`)).join("")}`;
+}
+async function openVote(code) {
+  openOverlay("vote");
+  $("#voteBody").innerHTML = `<p class="empty">불러오는 중…</p>`;
+  const { data, error } = sb ? await sb.rpc("ongi_vote_plan", { p_code: code }) : { error: true };
+  if (error || !data) { $("#voteBody").innerHTML = `<div class="empty">투표를 찾을 수 없습니다. 링크가 끝까지 복사됐는지 확인해 주세요.<br><button class="pill" type="button" data-open-planner>우리 회사도 맞춤 추천 받기</button></div>`; return; }
+  const voted = DB.get(`vote.${code}`, null);
+  $("#voteBody").innerHTML = `
+    <h2 id="voteTitle">어떤 봉사 프로그램이 좋을까요?</h2>
+    <p class="sub">동료 담당자가 받은 맞춤 추천입니다(참여 ${data.participants}명 · 1회 예산 ${man(data.budget)}). 마음에 드는 하나를 골라 주세요. 다시 투표하면 바뀝니다.</p>
+    <form id="voteForm" novalidate>
+      <fieldset class="q"><legend>마음에 드는 프로그램</legend><div class="opts col">${data.top.map((t) => { const p = byId(PROGRAMS, t.id); return p ? `<label class="opt"><input type="radio" name="program" value="${p.id}" ${voted?.program === p.id ? "checked" : ""}><span>${esc(p.name)}<small>${esc(PLACE[p.place])} · ${p.hours}시간 · 1인당 약 ${won(t.perHead)} · ${esc(p.summary.slice(0, 48))}…</small></span></label>` : ""; }).join("")}</div><p class="err" data-err="program"></p></fieldset>
+      <div class="row2">
+        <div class="field"><label for="vVoter">부서 또는 별명<span class="req">*</span></label><input type="text" id="vVoter" name="voter" maxlength="20" placeholder="예: 생산팀, 신입사원" value="${esc(voted?.voter || "")}" required></div>
+        <div class="field"><label for="vComment">한마디<span class="opt-l">(선택, 200자)</span></label><input type="text" id="vComment" name="comment" maxlength="200" placeholder="예: 주말보다 평일이 좋아요"></div>
+      </div>
+      <p class="note">이름·연락처는 적지 말아 주세요. 투표 결과는 링크를 가진 사람과 담당자만 봅니다.</p>
+      <p class="err" id="voteErr"></p>
+      <div class="nav-btns"><button class="pill ghost" type="button" data-close>닫기</button><button class="pill" type="submit">투표하기</button></div>
+    </form>
+    <div class="votebox"><h3>지금까지 투표</h3><div id="voteTally2"></div></div>`;
+  loadTally(code, $("#voteTally2"));
+  $("#voteForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(e.target));
+    if (!f.program) { $('[data-err="program"]').textContent = "하나를 골라 주세요."; return; }
+    if (!f.voter?.trim()) { $("#voteErr").textContent = "부서 또는 별명을 적어 주세요."; $("#vVoter").focus(); return; }
+    const btn = $('[type="submit"]', e.target); btn.disabled = true; btn.textContent = "투표하는 중…";
+    const { error: ve } = await sb.rpc("ongi_cast_vote", { p_code: code, p_program: f.program, p_voter: f.voter.trim(), p_comment: f.comment || "", p_session: SESSION });
+    btn.disabled = false; btn.textContent = "투표하기";
+    if (ve) { $("#voteErr").textContent = "투표하지 못했습니다. 잠시 후 다시 눌러 주세요."; return; }
+    DB.set(`vote.${code}`, { program: f.program, voter: f.voter.trim() });
+    track("vote", f.program); toast("투표했습니다. 고맙습니다!"); loadTally(code, $("#voteTally2"));
+  };
+}
 
 /* ---------- 로그인 · 가입 ---------- */
 let authMode = "in", pendingProgram = null;
@@ -798,6 +851,8 @@ sb?.auth.onAuthStateChange((ev) => {
   if (ev === "SIGNED_IN" || ev === "SIGNED_OUT") Auth.load().then(refreshNav, () => {});
 });
 track("visit", document.referrer ? new URL(document.referrer).hostname : "direct");
+const voteCode = new URLSearchParams(location.search).get("vote");
+if (/^ONGI-[A-Z0-9]{6}$/.test(voteCode || "")) openVote(voteCode);
 if (new URLSearchParams(location.search).get("ref") && referral) { track("ref", referral); toast("소개 링크로 오셨네요. 의뢰하시면 대행비 10% 할인이 적용됩니다."); }
 
 // 섹션별 체류 시간과 버튼 클릭 (대시보드용)

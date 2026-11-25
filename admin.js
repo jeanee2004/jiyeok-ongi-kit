@@ -102,7 +102,9 @@ function metrics(evs, reqs) {
     complete: starts ? results / starts : null,
     requests: reqs.length,
     conv: results ? reqs.length / results : null,
-    codes: evs.filter((e) => e.type === "code").length,
+    codes: evs.filter((e) => e.type === "code" && e.name !== "vote-share").length,
+    voteShares: evs.filter((e) => e.type === "code" && e.name === "vote-share").length,
+    votes: evs.filter((e) => e.type === "vote").length,
     refs: uniq(evs, "ref"),
     stay: stay.size ? [...stay.values()].reduce((a, b) => a + b, 0) / stay.size : 0,
   };
@@ -157,6 +159,8 @@ function render() {
     kpi("의뢰 전환율", m.conv, mp.conv, pct, { rate: true, meter: m.conv, hint: "추천 완료 대비 의뢰" }),
     kpi("할인 코드 복사·공유", m.codes, mp.codes, num),
     kpi("소개 링크 유입", m.refs, mp.refs, num, { hint: `코드 쓴 의뢰 ${R.cur.filter((r) => r.code || r.ref).length}건` }),
+    kpi("팀 투표 링크 공유", m.voteShares, mp.voteShares, num),
+    kpi("팀 투표 참여", m.votes, mp.votes, num, { hint: m.voteShares ? `링크 1개당 ${(m.votes / m.voteShares).toFixed(1)}표` : "" }),
     kpi("평균 체류", m.stay, mp.stay, dur),
   ].join("");
 
@@ -200,13 +204,14 @@ function insights(m, mp, E, P, R, stepN, drops) {
   const im = top("images", (v) => byId(IMAGES, v)?.label); if (im) ins.push(`가장 많이 고른 회사 이미지는 ‘${im[0]}’예요.`);
   const fresh = data.requests.filter((r) => r.status === "new");
   if (fresh.length) sug.push(`연락 전 의뢰가 ${fresh.length}건 있어요. 가장 오래된 건은 ${fmtDate(fresh.at(-1).created_at)} 접수예요.`);
+  if (m.votes) ins.push(`팀 투표에 ${m.votes}표가 들어왔어요. 사내 의견을 모으는 데 쓰이고 있어요.`); else if (m.voteShares) sug.push("투표 링크는 공유되지만 투표가 없어요. 링크 문구를 더 짧게 바꿔 보세요.");
   if (m.refs) ins.push(`소개 링크로 ${m.refs}세션이 들어왔어요.`); else if (m.codes) sug.push("코드는 복사되지만 소개 유입이 없어요. 소개 링크 문구를 결과 화면 위쪽으로 올려 보세요.");
   const mealYes = P.cur.filter((p) => p.input?.meal === "company").length;
   if (P.cur.length >= 5) ins.push(`응답의 ${pct(mealYes / P.cur.length)}가 식대를 회사가 지원한다고 했어요.`);
   if (!sug.length) sug.push("데이터가 더 쌓이면 개선 제안이 나타나요.");
   $("#insights").innerHTML = ins.map((t) => `<li>${esc(t)}</li>`).join("") || `<li>아직 데이터가 없습니다.</li>`;
   $("#suggest").innerHTML = sug.map((t) => `<li>${esc(t)}</li>`).join("");
-  data.facts = [`기간: ${period ? `최근 ${period}일` : "전체"}`, `방문 세션 ${m.visitors}, 추천 시작 ${m.starts}, 추천 완료 ${m.results}, 의뢰 ${m.requests}, 할인 코드 복사·공유 ${m.codes}, 소개 유입 ${m.refs}`,
+  data.facts = [`기간: ${period ? `최근 ${period}일` : "전체"}`, `방문 세션 ${m.visitors}, 추천 시작 ${m.starts}, 추천 완료 ${m.results}, 의뢰 ${m.requests}, 할인 코드 복사·공유 ${m.codes}, 소개 유입 ${m.refs}, 팀 투표 링크 ${m.voteShares}, 팀 투표 ${m.votes}`,
     ...STEP_LABEL.map((l, i) => `${i + 1}단계 ${l}: ${stepN[i]}세션`), ...ins, ...DIST.slice(0, 8).map(([key, title, label = (v) => v]) => `${title}: ${count(P.cur.flatMap((p) => [].concat(p.input?.[key] ?? [])).map((v) => label(v) || v)).slice(0, 4).map(([k, n]) => `${k} ${n}`).join(", ")}`)].join("\n");
 }
 $("#aiBtn").addEventListener("click", async () => {
